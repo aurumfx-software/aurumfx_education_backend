@@ -1,6 +1,7 @@
 import os
-import shutil
 import json
+import uuid
+
 
 from fastapi import (
     APIRouter,
@@ -20,6 +21,7 @@ from schemas.course import CourseResponse
 
 from routers.auth import get_current_admin
 
+from utils.spaces import spaces_client, SPACES_BUCKET
 
 router = APIRouter(
     prefix="/courses",
@@ -39,14 +41,6 @@ def get_db():
     finally:
         db.close()
 
-
-# ==========================================
-# UPLOAD DIRECTORY
-# ==========================================
-
-UPLOAD_DIR = "uploads/courses"
-
-os.makedirs(UPLOAD_DIR, exist_ok=True)
 
 
 # ==========================================
@@ -140,18 +134,40 @@ def add_course(
     # SAVE IMAGE
     # ==========================================
 
-    filename = image.filename
+    # filename = image.filename
 
-    file_path = os.path.join(
-        UPLOAD_DIR,
-        filename
+    # file_path = os.path.join(
+    #     UPLOAD_DIR,
+    #     filename
+    # )
+
+    # with open(file_path, "wb") as buffer:
+    #     shutil.copyfileobj(
+    #         image.file,
+    #         buffer
+    #     )
+
+
+# ==========================================
+# UPLOAD IMAGE TO DIGITALOCEAN SPACES
+# ==========================================
+
+    file_extension = os.path.splitext(image.filename)[1]
+
+    file_name = f"courses/{uuid.uuid4()}{file_extension}"
+
+    spaces_client.upload_fileobj(
+        image.file,
+        SPACES_BUCKET,
+        file_name,
+        ExtraArgs={
+            "ContentType": image.content_type,
+            "ACL": "public-read"
+        }
     )
 
-    with open(file_path, "wb") as buffer:
-        shutil.copyfileobj(
-            image.file,
-            buffer
-        )
+    image_url = f"{os.getenv('SPACES_PUBLIC_URL')}/{file_name}"
+
 
 
     # ==========================================
@@ -166,7 +182,7 @@ def add_course(
         category=category,
         level=level,
         curriculum=curriculum_data,
-        image=file_path
+        image=image_url
     )
 
     db.add(new_course)
@@ -254,20 +270,35 @@ def update_course(
 
     if image:
 
-        filename = image.filename
+        # Delete old image from Spaces
+        if db_course.image:
+            old_key = db_course.image.replace(f"{os.getenv('SPACES_PUBLIC_URL')}/", "")
+            try:
+                spaces_client.delete_object(
+                    Bucket=SPACES_BUCKET,
+                    Key=old_key
+                )
+            except Exception as e:
+                print(f"⚠️ Error deleting old image: {e}")
 
-        file_path = os.path.join(
-            UPLOAD_DIR,
-            filename
-        )
+        # Upload new image
+        file_extension = os.path.splitext(image.filename)[1]
+        file_name = f"courses/{uuid.uuid4()}{file_extension}"
 
-        with open(file_path, "wb") as buffer:
-            shutil.copyfileobj(
-                image.file,
-                buffer
-            )
+        spaces_client.upload_fileobj(
+            image.file,
+            SPACES_BUCKET,
+            file_name,
+            ExtraArgs={
+                "ContentType": image.content_type,
+        "ACL": "public-read"
+    }
+)
 
-        db_course.image = file_path
+        image_url = f"{os.getenv('SPACES_PUBLIC_URL')}/{file_name}"
+        db_course.image = image_url
+
+
 
 
     # ==========================================
@@ -304,6 +335,33 @@ def delete_course(
             status_code=404,
             detail="Course not found"
         )
+ 
+    # ==========================================
+    # DELETE IMAGE FROM DIGITALOCEAN SPACES
+    # ==========================================
+
+    if db_course.image:
+
+        public_url = os.getenv("SPACES_PUBLIC_URL")
+
+        if public_url and db_course.image.startswith(public_url):
+            old_key = db_course.image.replace(
+                f"{public_url}/",
+                ""
+            )
+
+            try:
+                spaces_client.delete_object(
+                    Bucket=SPACES_BUCKET,
+                    Key=old_key
+                )
+
+            except Exception as e:
+                print(f"Error deleting image from Spaces: {e}")
+
+    # ==========================================
+    # DELETE COURSE FROM DATABASE
+    # ==========================================
 
     db.delete(db_course)
 
@@ -312,3 +370,5 @@ def delete_course(
     return {
         "message": "Course deleted successfully"
     }
+
+

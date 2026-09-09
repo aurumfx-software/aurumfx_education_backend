@@ -82,3 +82,24 @@ def test_db():
         
         
         
+
+ #  APi for testing image upload to 
+
+
+@app.get("/test-spaces")
+def test_spaces():
+    from utils.spaces import spaces_client, SPACES_BUCKET
+
+    try:
+        spaces_client.head_bucket(
+            Bucket=SPACES_BUCKET
+        )
+
+        return {
+            "message": "DigitalOcean Spaces connected successfully"
+        }
+
+    except Exception as e:
+        return {
+            "error": str(e)
+        }

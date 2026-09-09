@@ -4,6 +4,7 @@ from database import SessionLocal
 from database_models import User
 from utils.password import hash_password
 
+ 
 
 def create_admin():
 
@@ -42,3 +43,5 @@ def create_admin():
 
 
 create_admin()
+
+

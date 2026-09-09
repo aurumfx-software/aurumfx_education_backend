@@ -65,7 +65,7 @@ def get_all_enquiries(
 # ==========================================
 # ADMIN: UPDATE ENQUIRY STATUS
 # ==========================================
-
+ 
 @router.put("/{enquiry_id}/status", response_model=EnquiryResponse)
 def update_enquiry_status(
     enquiry_id: int,
@@ -114,3 +114,7 @@ def delete_enquiry(
     db.delete(enquiry)
     db.commit()
     return {"message": "Enquiry deleted successfully"}
+
+
+
+
