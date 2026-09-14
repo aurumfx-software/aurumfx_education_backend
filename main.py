@@ -6,7 +6,7 @@ from sqlalchemy import text
 from database import SessionLocal,engine
 import database_models
 from fastapi.staticfiles import StaticFiles
-from routers import auth, courses, enquiries, settings
+from routers import auth, courses, enquiries, settings,enrollments
 
 
 app=FastAPI()
@@ -27,10 +27,11 @@ app.add_middleware(
 
 database_models.Base.metadata.create_all(bind=engine)
 
-# Auto-migrate phone column in users table
+# Auto-migrate phone column in users table and parents_phone in enquiries table
 try:
     with engine.connect() as conn:
         conn.execute(text("ALTER TABLE users ADD COLUMN IF NOT EXISTS phone VARCHAR;"))
+        conn.execute(text("ALTER TABLE enquiries ADD COLUMN IF NOT EXISTS parents_phone VARCHAR;"))
         conn.commit()
 except Exception as e:
     print(f"Migration note: {e}")
@@ -50,6 +51,7 @@ app.include_router(auth.router)
 app.include_router(courses.router)
 app.include_router(enquiries.router)
 app.include_router(settings.router)
+app.include_router(enrollments.router)
 
 
 

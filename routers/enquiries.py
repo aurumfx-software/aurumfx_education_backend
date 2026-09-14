@@ -11,8 +11,7 @@ from routers.auth import get_db, get_current_admin
 
 
 router = APIRouter(
-    prefix="/enquiries",
-    tags=["Enquiries"]
+    prefix="/enquiries"
 )
 
 
@@ -22,7 +21,7 @@ router = APIRouter(
 # PUBLIC: CREATE ENQUIRY
 # ==========================================
 
-@router.post("", response_model=EnquiryResponse)
+@router.post("", response_model=EnquiryResponse, tags=["Enquiries"])
 def create_enquiry(
     enquiry_data: EnquiryCreate,
     db: Session = Depends(get_db)
@@ -34,6 +33,7 @@ def create_enquiry(
         name=enquiry_data.name,
         email=enquiry_data.email,
         phone=enquiry_data.phone,
+        parents_phone=enquiry_data.parents_phone,
         course=enquiry_data.course,
         qualification=enquiry_data.qualification,
         message=enquiry_data.message,
@@ -50,7 +50,7 @@ def create_enquiry(
 # ADMIN: GET ALL ENQUIRIES
 # ==========================================
 
-@router.get("", response_model=List[EnquiryResponse])
+@router.get("", response_model=List[EnquiryResponse], tags=["Admin"])
 def get_all_enquiries(
     db: Session = Depends(get_db),
     current_admin: User = Depends(get_current_admin)
@@ -66,7 +66,7 @@ def get_all_enquiries(
 # ADMIN: UPDATE ENQUIRY STATUS
 # ==========================================
  
-@router.put("/{enquiry_id}/status", response_model=EnquiryResponse)
+@router.put("/{enquiry_id}/status", response_model=EnquiryResponse, tags=["Admin"])
 def update_enquiry_status(
     enquiry_id: int,
     status_data: EnquiryStatusUpdate,
@@ -95,7 +95,7 @@ def update_enquiry_status(
 # ADMIN: DELETE ENQUIRY
 # ==========================================
 
-@router.delete("/{enquiry_id}")
+@router.delete("/{enquiry_id}", tags=["Admin"])
 def delete_enquiry(
     enquiry_id: int,
     db: Session = Depends(get_db),

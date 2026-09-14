@@ -2,7 +2,7 @@ from sqlalchemy import Column, Integer, String, Float, Boolean, DateTime
 from sqlalchemy.sql import func
 from database import Base
 from sqlalchemy.dialects.postgresql import JSONB
-
+from sqlalchemy import ForeignKey
 
 class User(Base):
     __tablename__ = "users"
@@ -49,6 +49,7 @@ class Enquiry(Base):
     name = Column(String, nullable=False)
     email = Column(String, nullable=False)
     phone = Column(String, nullable=True)
+    parents_phone = Column(String, nullable=True)
     course = Column(String, nullable=True)
     qualification = Column(String, nullable=True)
     message = Column(String, nullable=True)
@@ -76,4 +77,78 @@ class SystemSettings(Base):
         server_default=func.now(),
         onupdate=func.now()
     )
-
+
+
+
+class Enrollment(Base):
+    __tablename__ = "enrollments"
+
+    id = Column(Integer, primary_key=True, index=True)
+
+    user_id = Column(
+        Integer,
+        ForeignKey("users.id"),
+        nullable=False
+    )
+
+    course_id = Column(
+        Integer,
+        ForeignKey("courses.id"),
+        nullable=False
+    )
+
+    full_name = Column(
+        String,
+        nullable=False
+    )
+
+    email = Column(
+        String,
+        nullable=False
+    )
+
+    phone = Column(
+        String,
+        nullable=False
+    )
+
+    parent_name = Column(
+        String,
+        nullable=False
+    )
+
+    parent_phone = Column(
+        String,
+        nullable=False
+    )
+
+    highest_qualification = Column(
+        String,
+        nullable=False
+    )
+
+    address = Column(
+        String,
+        nullable=False
+    )
+
+    payment_plan = Column(
+        String,
+        nullable=False
+    )
+
+    total_fee = Column(
+        Float,
+        nullable=False
+    )
+
+    status = Column(
+        String,
+        default="pending",
+        nullable=False
+    )
+
+    enrolled_at = Column(
+        DateTime(timezone=True),
+        server_default=func.now()
+    )

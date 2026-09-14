@@ -24,8 +24,7 @@ from routers.auth import get_current_admin
 from utils.spaces import spaces_client, SPACES_BUCKET
 
 router = APIRouter(
-    prefix="/courses",
-    tags=["Courses"]
+    prefix="/courses"
 )
 
 
@@ -50,7 +49,8 @@ def get_db():
 
 @router.get(
     "/",
-    response_model=list[CourseResponse]
+    response_model=list[CourseResponse],
+    tags=["Courses"]
 )
 def get_all_courses(
     db: Session = Depends(get_db)
@@ -70,7 +70,8 @@ def get_all_courses(
 
 @router.get(
     "/{course_id}",
-    response_model=CourseResponse
+    response_model=CourseResponse,
+    tags=["Courses"]
 )
 def get_course(
     course_id: int,
@@ -97,7 +98,8 @@ def get_course(
 
 @router.post(
     "/",
-    response_model=CourseResponse
+    response_model=CourseResponse,
+    tags=["Admin"]
 )
 def add_course(
     title: str = Form(...),
@@ -201,7 +203,8 @@ def add_course(
 
 @router.put(
     "/{course_id}",
-    response_model=CourseResponse
+    response_model=CourseResponse,
+    tags=["Admin"]
 )
 def update_course(
     course_id: int,
@@ -317,7 +320,7 @@ def update_course(
 # ADMIN ONLY
 # ==========================================
 
-@router.delete("/{course_id}")
+@router.delete("/{course_id}", tags=["Admin"])
 def delete_course(
     course_id: int,
 

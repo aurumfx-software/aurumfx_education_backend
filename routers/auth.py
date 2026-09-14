@@ -14,8 +14,7 @@ from utils.jwt import create_access_token, decode_access_token
 
 
 router = APIRouter(
-    prefix="/auth",
-    tags=["Authentication"]
+    prefix="/auth"
 )
 
 
@@ -42,7 +41,8 @@ def get_db():
 
 @router.post(
     "/register",
-    response_model=UserResponse
+    response_model=UserResponse,
+    tags=["Authentication"]
 )
 def register(
     user: UserRegister,
@@ -84,7 +84,7 @@ def register(
 # USER LOGIN
 # ==========================================
 
-@router.post("/login")
+@router.post("/login", tags=["Authentication"])
 def login(
     user: UserLogin,
     db: Session = Depends(get_db)
@@ -143,7 +143,7 @@ def login(
 # ADMIN LOGIN
 # ==========================================
 
-@router.post("/admin-login")
+@router.post("/admin-login", tags=["Admin"])
 def admin_login(
     user: UserLogin,
     db: Session = Depends(get_db)
@@ -262,7 +262,7 @@ def get_current_admin(
 # GET CURRENT USER PROFILE ENDPOINT
 # ==========================================
 
-@router.get("/me", response_model=UserResponse)
+@router.get("/me", response_model=UserResponse, tags=["Authentication"])
 def read_current_user(
     current_user: User = Depends(get_current_user)
 ):
@@ -273,7 +273,7 @@ def read_current_user(
 # GET ALL NON-ADMIN USERS (STUDENTS) ENDPOINT
 # ==========================================
 
-@router.get("/users", response_model=List[UserResponse])
+@router.get("/users", response_model=List[UserResponse], tags=["Admin"])
 def get_all_users(
     db: Session = Depends(get_db),
     current_admin: User = Depends(get_current_admin)
@@ -290,7 +290,7 @@ def get_all_users(
 # api for change admin password 
 
 
-@router.put("/admin/change-password")
+@router.put("/admin/change-password", tags=["Admin"])
 def change_admin_password(
     password_data:Changepassword,
     current_user:User=Depends(get_current_admin),

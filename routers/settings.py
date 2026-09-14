@@ -8,8 +8,7 @@ from routers.auth import get_current_admin
 
 
 router = APIRouter(
-    prefix="/settings",
-    tags=["Settings"]
+    prefix="/settings"
 )
 
 
@@ -43,7 +42,7 @@ def get_or_create_settings(db: Session) -> SystemSettings:
 # GET PUBLIC SETTINGS
 # ==========================================
 
-@router.get("/", response_model=SettingsResponse)
+@router.get("/", response_model=SettingsResponse, tags=["Settings"])
 def get_settings(db: Session = Depends(get_db)):
     """
     Get current institute contact settings
@@ -55,7 +54,7 @@ def get_settings(db: Session = Depends(get_db)):
 # UPDATE ADMIN SETTINGS
 # ==========================================
  
-@router.put("/", response_model=SettingsResponse)
+@router.put("/", response_model=SettingsResponse, tags=["Admin"])
 def update_settings(
     settings_data: SettingsSchema,
     db: Session = Depends(get_db),
