@@ -7,7 +7,8 @@ from database_models import Enrollment, Course
 from schemas.enrollment import (
     EnrollmentCreate,
     EnrollmentResponse,
-    AdminEnrollmentResponse
+    AdminEnrollmentResponse,
+    EnrollmentStatusUpdate
 )
 
 from routers.auth import (
@@ -277,3 +278,63 @@ def get_course_enrollments(
 
         for enrollment in enrollments
     ]
+
+
+
+
+
+
+# ==========================================
+# UPDATE ENROLLMENT STATUS
+# ADMIN ONLY
+# ==========================================
+
+@router.put(
+    "/admin/{enrollment_id}/status",
+    tags=["Admin"]
+)
+def update_enrollment_status(
+    enrollment_id: int,
+    status_data: EnrollmentStatusUpdate,
+    db: Session = Depends(get_db),
+    current_admin=Depends(get_current_admin)
+):
+
+    # ==========================================
+    # FIND ENROLLMENT
+    # ==========================================
+
+    enrollment = db.query(Enrollment).filter(
+        Enrollment.id == enrollment_id
+    ).first()
+
+    if not enrollment:
+        raise HTTPException(
+            status_code=404,
+            detail="Enrollment not found"
+        )
+
+    # ==========================================
+    # ONLY APPROVED STATUS IS ALLOWED
+    # ==========================================
+
+    if status_data.status != "approved":
+        raise HTTPException(
+            status_code=400,
+            detail="Status can only be changed to approved"
+        )
+
+    # ==========================================
+    # UPDATE STATUS
+    # ==========================================
+
+    enrollment.status = "approved"
+
+    db.commit()
+    db.refresh(enrollment)
+
+    return {
+        "message": "Enrollment approved successfully",
+        "enrollment_id": enrollment.id,
+        "status": enrollment.status
+    }

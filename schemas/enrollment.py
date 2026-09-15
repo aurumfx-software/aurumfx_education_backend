@@ -13,6 +13,9 @@ class EnrollmentCreate(BaseModel):
     address: str
     payment_plan: str
 
+class EnrollmentStatusUpdate(BaseModel):
+    status: str
+
 
 class EnrollmentResponse(BaseModel):
     id: int
