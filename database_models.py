@@ -20,7 +20,7 @@ class User(Base):
         server_default=func.now()
     )
 
- 
+  
 
 class Course(Base):
     __tablename__ = "courses"
@@ -149,6 +149,24 @@ class Enrollment(Base):
     )
 
     enrolled_at = Column(
+        DateTime(timezone=True),
+        server_default=func.now()
+    )
+
+
+
+
+class Announcement(Base):
+    __tablename__ = "announcements"
+
+    id = Column(Integer, primary_key=True, index=True)
+
+    title = Column(String, nullable=False)
+
+    message = Column(String, nullable=False)
+    image = Column(String, nullable=True)
+
+    created_at = Column(
         DateTime(timezone=True),
         server_default=func.now()
     )

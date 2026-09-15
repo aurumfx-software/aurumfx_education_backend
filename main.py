@@ -6,7 +6,7 @@ from sqlalchemy import text
 from database import SessionLocal,engine
 import database_models
 from fastapi.staticfiles import StaticFiles
-from routers import auth, courses, enquiries, settings,enrollments
+from routers import auth, courses, enquiries, settings,enrollments,announcements
 
 
 app=FastAPI()
@@ -52,6 +52,7 @@ app.include_router(courses.router)
 app.include_router(enquiries.router)
 app.include_router(settings.router)
 app.include_router(enrollments.router)
+app.include_router(announcements.router)
 
 
 
