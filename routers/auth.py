@@ -34,7 +34,6 @@ def get_db():
     finally:
         db.close()
 
-
 # ==========================================
 # USER REGISTER
 # ==========================================
@@ -42,14 +41,17 @@ def get_db():
 @router.post(
     "/register",
     response_model=UserResponse,
-    tags=["Authentication"]
+    tags=["User Authentication"]
 )
 def register(
     user: UserRegister,
     db: Session = Depends(get_db)
 ):
 
-    # Check whether email already exists
+    # ==========================================
+    # CHECK WHETHER EMAIL ALREADY EXISTS
+    # ==========================================
+
     existing_user = db.query(User).filter(
         User.email == user.email
     ).first()
@@ -60,31 +62,61 @@ def register(
             detail="Email already registered"
         )
 
-    # Hash password
-    hashed_password = hash_password(user.password)
 
-    # Create user
+    # ==========================================
+    # HASH PASSWORD
+    # ==========================================
+
+    hashed_password = hash_password(
+        user.password
+    )
+
+
+    # ==========================================
+    # CREATE USER
+    # ==========================================
+
     new_user = User(
         name=user.name,
         email=user.email,
         phone=user.phone,
+
+        parent_name=user.parent_name,
+        parent_phone=user.parent_phone,
+
+        highest_qualification=(
+            user.highest_qualification
+        ),
+
+        address=user.address,
+
         password_hash=hashed_password,
-        role="user"
+
+        profile_image=None,
+
+        role="user",
+        is_active=True
     )
 
-    # Save user
+
+    # ==========================================
+    # SAVE USER
+    # ==========================================
+
     db.add(new_user)
+
     db.commit()
+
     db.refresh(new_user)
 
-    return new_user
 
+    return new_user
 
 # ==========================================
 # USER LOGIN
 # ==========================================
 
-@router.post("/login", tags=["Authentication"])
+@router.post("/login", tags=["User Authentication"])
 def login(
     user: UserLogin,
     db: Session = Depends(get_db)
@@ -262,7 +294,7 @@ def get_current_admin(
 # GET CURRENT USER PROFILE ENDPOINT
 # ==========================================
 
-@router.get("/me", response_model=UserResponse, tags=["Authentication"])
+@router.get("/me", response_model=UserResponse, tags=["User Authentication"])
 def read_current_user(
     current_user: User = Depends(get_current_user)
 ):

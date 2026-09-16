@@ -21,7 +21,7 @@ router = APIRouter(
 # PUBLIC: CREATE ENQUIRY
 # ==========================================
 
-@router.post("", response_model=EnquiryResponse, tags=["Enquiries"])
+@router.post("", response_model=EnquiryResponse, tags=["User"])
 def create_enquiry(
     enquiry_data: EnquiryCreate,
     db: Session = Depends(get_db)

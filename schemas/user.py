@@ -1,7 +1,7 @@
 from datetime import datetime
 from typing import Optional
-from pydantic import BaseModel, EmailStr, ConfigDict
 
+from pydantic import BaseModel, EmailStr, ConfigDict
 
 
 class UserRegister(BaseModel):
@@ -9,6 +9,11 @@ class UserRegister(BaseModel):
     email: EmailStr
     password: str
     phone: Optional[str] = None
+
+    parent_name: Optional[str] = None
+    parent_phone: Optional[str] = None
+    highest_qualification: Optional[str] = None
+    address: Optional[str] = None
 
 
 class UserLogin(BaseModel):
@@ -21,49 +26,20 @@ class UserResponse(BaseModel):
     name: str
     email: EmailStr
     phone: Optional[str] = None
+
+    parent_name: Optional[str] = None
+    parent_phone: Optional[str] = None
+    highest_qualification: Optional[str] = None
+    address: Optional[str] = None
+    profile_image: Optional[str] = None
+
     role: str
     is_active: bool
     created_at: Optional[datetime] = None
 
     model_config = ConfigDict(from_attributes=True)
-    
-    
-    
-    
-    
-    
-    
-    
-    
-    # class for updating  admin password 
-    
-    
-
-
 
 
 class Changepassword(BaseModel):
-      current_password:str
-      new_password:str
-        
-    
-    
-    
-    
-    
-    
-    
-    
-    
-    
-    
-    
-    
-    
-    
-    
-    
-    
-    
-    
-    
+    current_password: str
+    new_password: str

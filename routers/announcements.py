@@ -113,7 +113,7 @@ async def create_announcement(
 @router.get(
     "/",
     response_model=list[AnnouncementResponse],
-    tags=["Announcements"]
+    tags=["Admin"]
 )
 def get_announcements(
     db: Session = Depends(get_db)

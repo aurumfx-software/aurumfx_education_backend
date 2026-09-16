@@ -43,7 +43,7 @@ def get_db():
 @router.post(
     "/",
     response_model=EnrollmentResponse,
-    tags=["Enrollments"]
+    tags=["User"]
 )
 def create_enrollment(
     enrollment_data: EnrollmentCreate,
@@ -155,7 +155,7 @@ def create_enrollment(
 @router.get(
     "/my",
     response_model=list[EnrollmentResponse],
-    tags=["Enrollments"]
+    tags=["User"]
 )
 def get_my_enrollments(
     db: Session = Depends(get_db),

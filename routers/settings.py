@@ -42,7 +42,7 @@ def get_or_create_settings(db: Session) -> SystemSettings:
 # GET PUBLIC SETTINGS
 # ==========================================
 
-@router.get("/", response_model=SettingsResponse, tags=["Settings"])
+@router.get("/", response_model=SettingsResponse, tags=["Admin"])
 def get_settings(db: Session = Depends(get_db)):
     """
     Get current institute contact settings
