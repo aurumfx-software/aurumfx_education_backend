@@ -34,10 +34,14 @@ class UserResponse(BaseModel):
     profile_image: Optional[str] = None
 
     role: str
-    is_active: bool
+
+    status: str
+
     created_at: Optional[datetime] = None
 
-    model_config = ConfigDict(from_attributes=True)
+    model_config = ConfigDict(
+        from_attributes=True
+    )
 
 
 class Changepassword(BaseModel):

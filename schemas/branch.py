@@ -11,18 +11,22 @@ class BranchCreate(BaseModel):
     email: Optional[EmailStr] = None
 
 
+class BranchUpdate(BaseModel):
+    name: Optional[str] = None
+    location: Optional[str] = None
+    phone: Optional[str] = None
+    email: Optional[EmailStr] = None
+
+
 class BranchResponse(BaseModel):
     id: int
     name: str
     location: str
     phone: Optional[str] = None
     email: Optional[EmailStr] = None
-    is_active: bool
+    status: str
     created_at: Optional[datetime] = None
 
-    model_config = ConfigDict(from_attributes=True)
-
-
-
-
-
+    model_config = ConfigDict(
+        from_attributes=True
+    )

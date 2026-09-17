@@ -100,7 +100,7 @@ def register(
 
         role="user",
 
-        is_active=True
+        status="Active"
     )
 
     # ==========================================
@@ -164,7 +164,7 @@ def login(
     # CHECK ACTIVE STATUS
     # ==========================================
 
-    if not db_user.is_active:
+    if db_user.status != "Active":
         raise HTTPException(
             status_code=403,
             detail="User account is inactive"
@@ -253,7 +253,7 @@ def admin_login(
     # CHECK ACTIVE STATUS
     # ==========================================
 
-    if not db_user.is_active:
+    if db_user.status != "Active":
         raise HTTPException(
             status_code=403,
             detail="Super admin account is inactive"
@@ -282,6 +282,10 @@ def get_current_user(
     credentials: HTTPAuthorizationCredentials = Depends(security),
     db: Session = Depends(get_db)
 ):
+
+    # ==========================================
+    # GET TOKEN
+    # ==========================================
 
     token = credentials.credentials
 
@@ -329,7 +333,7 @@ def get_current_user(
     # CHECK ACTIVE STATUS
     # ==========================================
 
-    if not db_user.is_active:
+    if db_user.status != "Active":
         raise HTTPException(
             status_code=403,
             detail="User account is inactive"
@@ -367,6 +371,7 @@ def get_current_super_admin(
 def read_current_user(
     current_user: User = Depends(get_current_user)
 ):
+
     return current_user
 
 

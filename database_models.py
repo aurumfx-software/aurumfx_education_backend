@@ -99,21 +99,21 @@ class User(Base):
         nullable=False
     )
 
-    is_active = Column(
-        Boolean,
-        default=True
+    status = Column( 
+        String,
+        default="Active",
+        nullable=False
     )
 
     created_at = Column(
         DateTime(timezone=True),
         server_default=func.now()
-    )
+                )
 
 
 # ==========================================
 # BRANCH
 # ==========================================
-
 class Branch(Base):
     __tablename__ = "branches"
 
@@ -143,9 +143,9 @@ class Branch(Base):
         nullable=True
     )
 
-    is_active = Column(
-        Boolean,
-        default=True,
+    status = Column(
+        String,
+        default="Active",
         nullable=False
     )
 
@@ -153,8 +153,6 @@ class Branch(Base):
         DateTime(timezone=True),
         server_default=func.now()
     )
-
-
 # ==========================================
 # COURSE
 # ==========================================

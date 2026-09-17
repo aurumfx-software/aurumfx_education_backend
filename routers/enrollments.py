@@ -40,6 +40,7 @@ def get_db():
 # STUDENT ONLY
 # ==========================================
 
+
 @router.post(
     "/",
     response_model=EnrollmentResponse,
