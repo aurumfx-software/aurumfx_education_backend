@@ -44,7 +44,7 @@ def get_db():
 @router.post(
     "/",
     response_model=BranchResponse,
-    tags=["Super Admin"]
+    tags=["Super Admin Branches creating Api"]
 )
 def create_branch(
     branch: BranchCreate,
@@ -92,7 +92,7 @@ def create_branch(
 @router.post(
     "/admins",
     response_model=BranchAdminResponse,
-    tags=["Super Admin"]
+    tags=["Super Admins Branch admin Creating Api"]
 )
 def create_branch_admin(
     admin: BranchAdminCreate,
