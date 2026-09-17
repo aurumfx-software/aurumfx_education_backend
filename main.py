@@ -58,4 +58,9 @@ app.include_router(branches.router)
 
 
 
-
+@app.get("/test-server")
+def test_server():
+    return {
+        "status": "success",
+        "message": "AurumFX server is running"
+    }
