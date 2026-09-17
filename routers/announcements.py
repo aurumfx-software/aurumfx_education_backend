@@ -14,9 +14,13 @@ from database_models import Announcement
 
 from schemas.announcement import AnnouncementResponse
 
-from routers.auth import get_current_admin
+from routers.auth import get_current_super_admin
 
-from utils.spaces import spaces_client, SPACES_BUCKET, SPACES_PUBLIC_URL
+from utils.spaces import (
+    spaces_client,
+    SPACES_BUCKET,
+    SPACES_PUBLIC_URL
+)
 
 
 router = APIRouter(
@@ -39,13 +43,13 @@ def get_db():
 
 # ==========================================
 # CREATE ANNOUNCEMENT
-# ADMIN ONLY
+# SUPER ADMIN ONLY
 # ==========================================
 
 @router.post(
     "/",
     response_model=AnnouncementResponse,
-    tags=["Admin"]
+    tags=["Super Admin"]
 )
 async def create_announcement(
     title: str = Form(...),
@@ -54,7 +58,7 @@ async def create_announcement(
 
     db: Session = Depends(get_db),
 
-    current_admin=Depends(get_current_admin)
+    current_admin=Depends(get_current_super_admin)
 ):
 
     image_url = None
@@ -64,8 +68,6 @@ async def create_announcement(
     # ==========================================
 
     if image:
-
-        file_extension = image.filename.split(".")[-1]
 
         file_name = (
             f"announcements/{title.replace(' ', '-').lower()}"
@@ -107,65 +109,112 @@ async def create_announcement(
 
 # ==========================================
 # GET ANNOUNCEMENTS
-# STUDENT + ADMIN
+# PUBLIC
 # ==========================================
 
 @router.get(
     "/",
     response_model=list[AnnouncementResponse],
-    tags=["Admin"]
+    tags=["Super Admin"]
 )
 def get_announcements(
     db: Session = Depends(get_db)
 ):
 
-    announcements = db.query(
-        Announcement
-    ).order_by(
-        Announcement.created_at.desc()
-    ).all()
+    announcements = (
+        db.query(Announcement)
+        .order_by(
+            Announcement.created_at.desc()
+        )
+        .all()
+    )
 
     return announcements
 
 
-
 # ==========================================
 # UPDATE ANNOUNCEMENT
-# ADMIN ONLY
+# SUPER ADMIN ONLY
 # ==========================================
 
 @router.put(
     "/{announcement_id}",
     response_model=AnnouncementResponse,
-    tags=["Admin"]
+    tags=["Super Admin"]
 )
 async def update_announcement(
     announcement_id: int,
+
     title: str = Form(...),
     message: str = Form(...),
     image: UploadFile | None = File(None),
 
     db: Session = Depends(get_db),
 
-    current_admin=Depends(get_current_admin)
+    current_admin=Depends(get_current_super_admin)
 ):
 
-    announcement = db.query(Announcement).filter(
-        Announcement.id == announcement_id
-    ).first()
+    # ==========================================
+    # FIND ANNOUNCEMENT
+    # ==========================================
+
+    announcement = (
+        db.query(Announcement)
+        .filter(
+            Announcement.id == announcement_id
+        )
+        .first()
+    )
 
     if not announcement:
+
         raise HTTPException(
             status_code=404,
             detail="Announcement not found"
         )
 
-    # Update text
+    # ==========================================
+    # UPDATE TEXT
+    # ==========================================
+
     announcement.title = title
     announcement.message = message
 
-    # Upload new image only if provided
+
+    # ==========================================
+    # UPDATE IMAGE IF PROVIDED
+    # ==========================================
+
     if image:
+
+        # ------------------------------------------
+        # DELETE OLD IMAGE
+        # ------------------------------------------
+
+        if announcement.image:
+
+            old_key = announcement.image.replace(
+                f"{SPACES_PUBLIC_URL}/",
+                ""
+            )
+
+            try:
+
+                spaces_client.delete_object(
+                    Bucket=SPACES_BUCKET,
+                    Key=old_key
+                )
+
+            except Exception as e:
+
+                print(
+                    f"Error deleting old announcement image: {e}"
+                )
+
+
+        # ------------------------------------------
+        # UPLOAD NEW IMAGE
+        # ------------------------------------------
 
         file_name = (
             f"announcements/{announcement_id}-{image.filename}"
@@ -185,43 +234,54 @@ async def update_announcement(
             f"{SPACES_PUBLIC_URL}/{file_name}"
         )
 
+
+    # ==========================================
+    # SAVE CHANGES
+    # ==========================================
+
     db.commit()
+
     db.refresh(announcement)
 
     return announcement
 
 
-
 # ==========================================
 # DELETE ANNOUNCEMENT
-# ADMIN ONLY
+# SUPER ADMIN ONLY
 # ==========================================
 
 @router.delete(
     "/{announcement_id}",
-    tags=["Admin"]
+    tags=["Super Admin"]
 )
 def delete_announcement(
     announcement_id: int,
 
     db: Session = Depends(get_db),
 
-    current_admin=Depends(get_current_admin)
+    current_admin=Depends(get_current_super_admin)
 ):
 
     # ==========================================
     # FIND ANNOUNCEMENT
     # ==========================================
 
-    announcement = db.query(Announcement).filter(
-        Announcement.id == announcement_id
-    ).first()
+    announcement = (
+        db.query(Announcement)
+        .filter(
+            Announcement.id == announcement_id
+        )
+        .first()
+    )
 
     if not announcement:
+
         raise HTTPException(
             status_code=404,
             detail="Announcement not found"
         )
+
 
     # ==========================================
     # DELETE IMAGE FROM DIGITALOCEAN SPACES
@@ -229,20 +289,28 @@ def delete_announcement(
 
     if announcement.image:
 
-        image_key = announcement.image.split(
-            f"{SPACES_PUBLIC_URL}/"
-        )[-1]
+        image_key = announcement.image.replace(
+            f"{SPACES_PUBLIC_URL}/",
+            ""
+        )
 
         try:
+
             spaces_client.delete_object(
                 Bucket=SPACES_BUCKET,
                 Key=image_key
             )
+
         except Exception as e:
+
             raise HTTPException(
                 status_code=500,
-                detail=f"Failed to delete announcement image: {str(e)}"
+                detail=(
+                    "Failed to delete announcement image: "
+                    f"{str(e)}"
+                )
             )
+
 
     # ==========================================
     # DELETE ANNOUNCEMENT FROM DATABASE

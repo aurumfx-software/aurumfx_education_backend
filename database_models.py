@@ -3,13 +3,25 @@ from sqlalchemy.sql import func
 from database import Base
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy import ForeignKey
- 
+
+
+# ==========================================
+# USER
+# ==========================================
+
 class User(Base):
     __tablename__ = "users"
 
-    id = Column(Integer, primary_key=True, index=True)
+    id = Column(
+        Integer,
+        primary_key=True,
+        index=True
+    )
 
-    name = Column(String, nullable=False)
+    name = Column(
+        String,
+        nullable=False
+    )
 
     email = Column(
         String,
@@ -18,19 +30,68 @@ class User(Base):
         nullable=False
     )
 
-    password_hash = Column(String, nullable=False)
+    password_hash = Column(
+        String,
+        nullable=False
+    )
 
-    phone = Column(String, nullable=True)
+    phone = Column(
+        String,
+        nullable=True
+    )
 
-    parent_name = Column(String, nullable=True)
+    # ==========================================
+    # BRANCH ADMIN ID
+    # ==========================================
 
-    parent_phone = Column(String, nullable=True)
+    branch_admin_id = Column(
+        String,
+        unique=True,
+        nullable=True
+    )
 
-    highest_qualification = Column(String, nullable=True)
+    # ==========================================
+    # BRANCH
+    # ==========================================
 
-    address = Column(String, nullable=True)
+    branch_id = Column(
+        Integer,
+        ForeignKey("branches.id"),
+        nullable=True
+    )
 
-    profile_image = Column(String, nullable=True)
+    # ==========================================
+    # USER PROFILE
+    # ==========================================
+
+    parent_name = Column(
+        String,
+        nullable=True
+    )
+
+    parent_phone = Column(
+        String,
+        nullable=True
+    )
+
+    highest_qualification = Column(
+        String,
+        nullable=True
+    )
+
+    address = Column(
+        String,
+        nullable=True
+    )
+
+    profile_image = Column(
+        String,
+        nullable=True
+    )
+
+    # ==========================================
+    # ROLE
+    # ==========================================
 
     role = Column(
         String,
@@ -48,40 +109,169 @@ class User(Base):
         server_default=func.now()
     )
 
-   
+
+# ==========================================
+# BRANCH
+# ==========================================
+
+class Branch(Base):
+    __tablename__ = "branches"
+
+    id = Column(
+        Integer,
+        primary_key=True,
+        index=True
+    )
+
+    name = Column(
+        String,
+        nullable=False
+    )
+
+    location = Column(
+        String,
+        nullable=False
+    )
+
+    phone = Column(
+        String,
+        nullable=True
+    )
+
+    email = Column(
+        String,
+        nullable=True
+    )
+
+    is_active = Column(
+        Boolean,
+        default=True,
+        nullable=False
+    )
+
+    created_at = Column(
+        DateTime(timezone=True),
+        server_default=func.now()
+    )
+
+
+# ==========================================
+# COURSE
+# ==========================================
 
 class Course(Base):
     __tablename__ = "courses"
 
-    id = Column(Integer, primary_key=True, index=True)
-    title = Column(String, nullable=False)
-    description = Column(String, nullable=False)
-    price = Column(Float, nullable=False)
-    duration = Column(String, nullable=False)
-    image = Column(String, nullable=True)
-    category = Column(String, nullable=True)
-    level = Column(String, nullable=True)
-    curriculum=Column(JSONB,nullable=True)
-    is_active = Column(Boolean, default=True)
+    id = Column(
+        Integer,
+        primary_key=True,
+        index=True
+    )
+
+    title = Column(
+        String,
+        nullable=False
+    )
+
+    description = Column(
+        String,
+        nullable=False
+    )
+
+    price = Column(
+        Float,
+        nullable=False
+    )
+
+    duration = Column(
+        String,
+        nullable=False
+    )
+
+    image = Column(
+        String,
+        nullable=True
+    )
+
+    category = Column(
+        String,
+        nullable=True
+    )
+
+    level = Column(
+        String,
+        nullable=True
+    )
+
+    curriculum = Column(
+        JSONB,
+        nullable=True
+    )
+
+    is_active = Column(
+        Boolean,
+        default=True
+    )
 
     created_at = Column(
         DateTime(timezone=True),
         server_default=func.now()
     )
 
+
+# ==========================================
+# ENQUIRY
+# ==========================================
 
 class Enquiry(Base):
     __tablename__ = "enquiries"
 
-    id = Column(Integer, primary_key=True, index=True)
-    name = Column(String, nullable=False)
-    email = Column(String, nullable=False)
-    phone = Column(String, nullable=True)
-    parents_phone = Column(String, nullable=True)
-    course = Column(String, nullable=True)
-    qualification = Column(String, nullable=True)
-    message = Column(String, nullable=True)
-    status = Column(String, default="New", nullable=False)
+    id = Column(
+        Integer,
+        primary_key=True,
+        index=True
+    )
+
+    name = Column(
+        String,
+        nullable=False
+    )
+
+    email = Column(
+        String,
+        nullable=False
+    )
+
+    phone = Column(
+        String,
+        nullable=True
+    )
+
+    parents_phone = Column(
+        String,
+        nullable=True
+    )
+
+    course = Column(
+        String,
+        nullable=True
+    )
+
+    qualification = Column(
+        String,
+        nullable=True
+    )
+
+    message = Column(
+        String,
+        nullable=True
+    )
+
+    status = Column(
+        String,
+        default="New",
+        nullable=False
+    )
 
     created_at = Column(
         DateTime(timezone=True),
@@ -89,16 +279,48 @@ class Enquiry(Base):
     )
 
 
+# ==========================================
+# SYSTEM SETTINGS
+# ==========================================
+
 class SystemSettings(Base):
     __tablename__ = "system_settings"
 
-    id = Column(Integer, primary_key=True, index=True)
-    address = Column(String, nullable=True)
-    phone = Column(String, nullable=True)
-    alt_phone = Column(String, nullable=True)
-    email = Column(String, nullable=True)
-    admissions_email = Column(String, nullable=True)
-    working_hours = Column(String, nullable=True)
+    id = Column(
+        Integer,
+        primary_key=True,
+        index=True
+    )
+
+    address = Column(
+        String,
+        nullable=True
+    )
+
+    phone = Column(
+        String,
+        nullable=True
+    )
+
+    alt_phone = Column(
+        String,
+        nullable=True
+    )
+
+    email = Column(
+        String,
+        nullable=True
+    )
+
+    admissions_email = Column(
+        String,
+        nullable=True
+    )
+
+    working_hours = Column(
+        String,
+        nullable=True
+    )
 
     updated_at = Column(
         DateTime(timezone=True),
@@ -106,12 +328,19 @@ class SystemSettings(Base):
         onupdate=func.now()
     )
 
- 
+
+# ==========================================
+# ENROLLMENT
+# ==========================================
 
 class Enrollment(Base):
     __tablename__ = "enrollments"
 
-    id = Column(Integer, primary_key=True, index=True)
+    id = Column(
+        Integer,
+        primary_key=True,
+        index=True
+    )
 
     user_id = Column(
         Integer,
@@ -182,17 +411,33 @@ class Enrollment(Base):
     )
 
 
-
+# ==========================================
+# ANNOUNCEMENT
+# ==========================================
 
 class Announcement(Base):
     __tablename__ = "announcements"
 
-    id = Column(Integer, primary_key=True, index=True)
+    id = Column(
+        Integer,
+        primary_key=True,
+        index=True
+    )
 
-    title = Column(String, nullable=False)
+    title = Column(
+        String,
+        nullable=False
+    )
 
-    message = Column(String, nullable=False)
-    image = Column(String, nullable=True)
+    message = Column(
+        String,
+        nullable=False
+    )
+
+    image = Column(
+        String,
+        nullable=True
+    )
 
     created_at = Column(
         DateTime(timezone=True),

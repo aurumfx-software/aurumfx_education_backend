@@ -2,7 +2,6 @@ import os
 import json
 import uuid
 
-
 from fastapi import (
     APIRouter,
     Depends,
@@ -19,9 +18,13 @@ from database_models import Course
 
 from schemas.course import CourseResponse
 
-from routers.auth import get_current_admin
+from routers.auth import get_current_super_admin
 
-from utils.spaces import spaces_client, SPACES_BUCKET
+from utils.spaces import (
+    spaces_client,
+    SPACES_BUCKET
+)
+
 
 router = APIRouter(
     prefix="/courses"
@@ -41,7 +44,6 @@ def get_db():
         db.close()
 
 
-
 # ==========================================
 # GET ALL COURSES
 # PUBLIC
@@ -56,9 +58,11 @@ def get_all_courses(
     db: Session = Depends(get_db)
 ):
 
-    courses = db.query(Course).filter(
-        Course.is_active == True
-    ).all()
+    courses = (
+        db.query(Course)
+        .filter(Course.is_active == True)
+        .all()
+    )
 
     return courses
 
@@ -78,9 +82,11 @@ def get_course(
     db: Session = Depends(get_db)
 ):
 
-    course = db.query(Course).filter(
-        Course.id == course_id
-    ).first()
+    course = (
+        db.query(Course)
+        .filter(Course.id == course_id)
+        .first()
+    )
 
     if not course:
         raise HTTPException(
@@ -93,285 +99,325 @@ def get_course(
 
 # ==========================================
 # ADD COURSE
-# ADMIN ONLY
+# SUPER ADMIN ONLY
 # ==========================================
 
-@router.post(
-    "/",
-    response_model=CourseResponse,
-    tags=["Admin"]
-)
-def add_course(
-    title: str = Form(...),
-    description: str = Form(...),
-    price: float = Form(...),
-    duration: str = Form(...),
-    category: str = Form(...),
-    level: str = Form(...),
+# @router.post(
+#     "/",
+#     response_model=CourseResponse,
+#     tags=["Super Admin"]
+# )
+# def add_course(
+#     title: str = Form(...),
+#     description: str = Form(...),
+#     price: float = Form(...),
+#     duration: str = Form(...),
+#     category: str = Form(...),
+#     level: str = Form(...),
 
-    # Curriculum comes as JSON string
-    curriculum: str = Form(...),
+#     # Curriculum comes as JSON string
+#     curriculum: str = Form(...),
 
-    image: UploadFile = File(...),
+#     image: UploadFile = File(...),
 
-    db: Session = Depends(get_db),
-    admin=Depends(get_current_admin)
-):
+#     db: Session = Depends(get_db),
+#     admin=Depends(get_current_super_admin)
+# ):
 
-    # ==========================================
-    # CONVERT CURRICULUM JSON STRING
-    # ==========================================
+#     # ==========================================
+#     # CONVERT CURRICULUM JSON STRING
+#     # ==========================================
 
-    try:
-        curriculum_data = json.loads(curriculum)
+#     try:
+#         curriculum_data = json.loads(curriculum)
 
-    except json.JSONDecodeError:
-        raise HTTPException(
-            status_code=400,
-            detail="Invalid curriculum JSON"
-        )
-
-
-    # ==========================================
-    # SAVE IMAGE
-    # ==========================================
-
-    # filename = image.filename
-
-    # file_path = os.path.join(
-    #     UPLOAD_DIR,
-    #     filename
-    # )
-
-    # with open(file_path, "wb") as buffer:
-    #     shutil.copyfileobj(
-    #         image.file,
-    #         buffer
-    #     )
+#     except json.JSONDecodeError:
+#         raise HTTPException(
+#             status_code=400,
+#             detail="Invalid curriculum JSON"
+#         )
 
 
-# ==========================================
-# UPLOAD IMAGE TO DIGITALOCEAN SPACES
-# ==========================================
+#     # ==========================================
+#     # UPLOAD IMAGE TO DIGITALOCEAN SPACES
+#     # ==========================================
 
-    file_extension = os.path.splitext(image.filename)[1]
+#     file_extension = os.path.splitext(
+#         image.filename
+#     )[1]
 
-    file_name = f"courses/{uuid.uuid4()}{file_extension}"
+#     file_name = (
+#         f"courses/{uuid.uuid4()}{file_extension}"
+#     )
 
-    spaces_client.upload_fileobj(
-        image.file,
-        SPACES_BUCKET,
-        file_name,
-        ExtraArgs={
-            "ContentType": image.content_type,
-            "ACL": "public-read"
-        }
-    )
+#     spaces_client.upload_fileobj(
+#         image.file,
+#         SPACES_BUCKET,
+#         file_name,
+#         ExtraArgs={
+#             "ContentType": image.content_type,
+#             "ACL": "public-read"
+#         }
+#     )
 
-    image_url = f"{os.getenv('SPACES_PUBLIC_URL')}/{file_name}"
+#     image_url = (
+#         f"{os.getenv('SPACES_PUBLIC_URL')}/{file_name}"
+#     )
 
 
+#     # ==========================================
+#     # SAVE COURSE
+#     # ==========================================
 
-    # ==========================================
-    # SAVE COURSE
-    # ==========================================
+#     new_course = Course(
+#         title=title,
+#         description=description,
+#         price=price,
+#         duration=duration,
+#         category=category,
+#         level=level,
+#         curriculum=curriculum_data,
+#         image=image_url
+#     )
 
-    new_course = Course(
-        title=title,
-        description=description,
-        price=price,
-        duration=duration,
-        category=category,
-        level=level,
-        curriculum=curriculum_data,
-        image=image_url
-    )
+#     db.add(new_course)
 
-    db.add(new_course)
+#     db.commit()
 
-    db.commit()
+#     db.refresh(new_course)
 
-    db.refresh(new_course)
-
-    return new_course
+#     return new_course
 
 
 # ==========================================
 # UPDATE COURSE
-# ADMIN ONLY
+# SUPER ADMIN ONLY
 # ==========================================
 
-@router.put(
-    "/{course_id}",
-    response_model=CourseResponse,
-    tags=["Admin"]
-)
-def update_course(
-    course_id: int,
+# @router.put(
+#     "/{course_id}",
+#     response_model=CourseResponse,
+#     tags=["Super Admin"]
+# )
+# def update_course(
+#     course_id: int,
 
-    title: str = Form(...),
-    description: str = Form(...),
-    price: float = Form(...),
-    duration: str = Form(...),
-    category: str = Form(...),
-    level: str = Form(...),
+#     title: str = Form(...),
+#     description: str = Form(...),
+#     price: float = Form(...),
+#     duration: str = Form(...),
+#     category: str = Form(...),
+#     level: str = Form(...),
 
-    curriculum: str = Form(...),
+#     curriculum: str = Form(...),
 
-    image: UploadFile | None = File(None),
+#     image: UploadFile | None = File(None),
 
-    db: Session = Depends(get_db),
-    admin=Depends(get_current_admin)
-):
-    
+#     db: Session = Depends(get_db),
+#     admin=Depends(get_current_super_admin)
+# ):
 
-    # ==========================================
-    # FIND COURSE
-    # ==========================================
+#     # ==========================================
+#     # FIND COURSE
+#     # ==========================================
 
-    db_course = db.query(Course).filter(
-        Course.id == course_id
-    ).first()
+#     db_course = (
+#         db.query(Course)
+#         .filter(Course.id == course_id)
+#         .first()
+#     )
 
-    if not db_course:
-        raise HTTPException(
-            status_code=404,
-            detail="Course not found"
-        )
-
-
-    # ==========================================
-    # CONVERT CURRICULUM
-    # ==========================================
-
-    try:
-        curriculum_data = json.loads(curriculum)
-
-    except json.JSONDecodeError:
-        raise HTTPException(
-            status_code=400,
-            detail="Invalid curriculum JSON"
-        )
+#     if not db_course:
+#         raise HTTPException(
+#             status_code=404,
+#             detail="Course not found"
+#         )
 
 
-    # ==========================================
-    # UPDATE TEXT FIELDS
-    # ==========================================
+#     # ==========================================
+#     # CONVERT CURRICULUM
+#     # ==========================================
 
-    db_course.title = title
-    db_course.description = description
-    db_course.price = price
-    db_course.duration = duration
-    db_course.category = category
-    db_course.level = level
-    db_course.curriculum = curriculum_data
+#     try:
+#         curriculum_data = json.loads(curriculum)
 
-
-    # ==========================================
-    # UPDATE IMAGE IF PROVIDED
-    # ==========================================
-
-    if image:
-
-        # Delete old image from Spaces
-        if db_course.image:
-            old_key = db_course.image.replace(f"{os.getenv('SPACES_PUBLIC_URL')}/", "")
-            try:
-                spaces_client.delete_object(
-                    Bucket=SPACES_BUCKET,
-                    Key=old_key
-                )
-            except Exception as e:
-                print(f"⚠️ Error deleting old image: {e}")
-
-        # Upload new image
-        file_extension = os.path.splitext(image.filename)[1]
-        file_name = f"courses/{uuid.uuid4()}{file_extension}"
-
-        spaces_client.upload_fileobj(
-            image.file,
-            SPACES_BUCKET,
-            file_name,
-            ExtraArgs={
-                "ContentType": image.content_type,
-        "ACL": "public-read"
-    }
-)
-
-        image_url = f"{os.getenv('SPACES_PUBLIC_URL')}/{file_name}"
-        db_course.image = image_url
+#     except json.JSONDecodeError:
+#         raise HTTPException(
+#             status_code=400,
+#             detail="Invalid curriculum JSON"
+#         )
 
 
+#     # ==========================================
+#     # UPDATE TEXT FIELDS
+#     # ==========================================
+
+#     db_course.title = title
+#     db_course.description = description
+#     db_course.price = price
+#     db_course.duration = duration
+#     db_course.category = category
+#     db_course.level = level
+#     db_course.curriculum = curriculum_data
 
 
-    # ==========================================
-    # SAVE CHANGES
-    # ==========================================
+#     # ==========================================
+#     # UPDATE IMAGE IF PROVIDED
+#     # ==========================================
 
-    db.commit()
+#     if image:
 
-    db.refresh(db_course)
+#         # ------------------------------------------
+#         # DELETE OLD IMAGE
+#         # ------------------------------------------
 
-    return db_course
+#         if db_course.image:
+
+#             public_url = os.getenv(
+#                 "SPACES_PUBLIC_URL"
+#             )
+
+#             if (
+#                 public_url
+#                 and db_course.image.startswith(public_url)
+#             ):
+
+#                 old_key = db_course.image.replace(
+#                     f"{public_url}/",
+#                     ""
+#                 )
+
+#                 try:
+
+#                     spaces_client.delete_object(
+#                         Bucket=SPACES_BUCKET,
+#                         Key=old_key
+#                     )
+
+#                 except Exception as e:
+
+#                     print(
+#                         f"Error deleting old image: {e}"
+#                     )
+
+
+#         # ------------------------------------------
+#         # UPLOAD NEW IMAGE
+#         # ------------------------------------------
+
+#         file_extension = os.path.splitext(
+#             image.filename
+#         )[1]
+
+#         file_name = (
+#             f"courses/{uuid.uuid4()}{file_extension}"
+#         )
+
+#         spaces_client.upload_fileobj(
+#             image.file,
+#             SPACES_BUCKET,
+#             file_name,
+#             ExtraArgs={
+#                 "ContentType": image.content_type,
+#                 "ACL": "public-read"
+#             }
+#         )
+
+#         image_url = (
+#             f"{os.getenv('SPACES_PUBLIC_URL')}/{file_name}"
+#         )
+
+#         db_course.image = image_url
+
+
+#     # ==========================================
+#     # SAVE CHANGES
+#     # ==========================================
+
+#     db.commit()
+
+#     db.refresh(db_course)
+
+#     return db_course
 
 
 # ==========================================
 # DELETE COURSE
-# ADMIN ONLY
+# SUPER ADMIN ONLY
 # ==========================================
 
-@router.delete("/{course_id}", tags=["Admin"])
-def delete_course(
-    course_id: int,
+# @router.delete(
+#     "/{course_id}",
+#     tags=["Super Admin"]
+# )
+# def delete_course(
+#     course_id: int,
 
-    db: Session = Depends(get_db),
+#     db: Session = Depends(get_db),
 
-    admin=Depends(get_current_admin)
-):
+#     admin=Depends(get_current_super_admin)
+# ):
 
-    db_course = db.query(Course).filter(
-        Course.id == course_id
-    ).first()
+#     # ==========================================
+#     # FIND COURSE
+#     # ==========================================
 
-    if not db_course:
-        raise HTTPException(
-            status_code=404,
-            detail="Course not found"
-        )
- 
-    # ==========================================
-    # DELETE IMAGE FROM DIGITALOCEAN SPACES
-    # ==========================================
+#     db_course = (
+#         db.query(Course)
+#         .filter(Course.id == course_id)
+#         .first()
+#     )
 
-    if db_course.image:
+#     if not db_course:
 
-        public_url = os.getenv("SPACES_PUBLIC_URL")
-
-        if public_url and db_course.image.startswith(public_url):
-            old_key = db_course.image.replace(
-                f"{public_url}/",
-                ""
-            )
-
-            try:
-                spaces_client.delete_object(
-                    Bucket=SPACES_BUCKET,
-                    Key=old_key
-                )
-
-            except Exception as e:
-                print(f"Error deleting image from Spaces: {e}")
-
-    # ==========================================
-    # DELETE COURSE FROM DATABASE
-    # ==========================================
-
-    db.delete(db_course)
-
-    db.commit()
-
-    return {
-        "message": "Course deleted successfully"
-    }
+#         raise HTTPException(
+#             status_code=404,
+#             detail="Course not found"
+#         )
 
 
+#     # ==========================================
+#     # DELETE IMAGE FROM DIGITALOCEAN SPACES
+#     # ==========================================
+
+#     if db_course.image:
+
+#         public_url = os.getenv(
+#             "SPACES_PUBLIC_URL"
+#         )
+
+#         if (
+#             public_url
+#             and db_course.image.startswith(public_url)
+#         ):
+
+#             old_key = db_course.image.replace(
+#                 f"{public_url}/",
+#                 ""
+#             )
+
+#             try:
+
+#                 spaces_client.delete_object(
+#                     Bucket=SPACES_BUCKET,
+#                     Key=old_key
+#                 )
+
+#             except Exception as e:
+
+#                 print(
+#                     f"Error deleting image from Spaces: {e}"
+#                 )
+
+
+#     # ==========================================
+#     # DELETE COURSE FROM DATABASE
+#     # ==========================================
+
+#     db.delete(db_course)
+
+#     db.commit()
+
+#     return {
+#         "message": "Course deleted successfully"
+#     }

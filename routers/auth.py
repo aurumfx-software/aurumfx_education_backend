@@ -1,4 +1,5 @@
 from typing import List
+
 from fastapi import APIRouter, Depends, HTTPException
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from sqlalchemy.orm import Session
@@ -6,7 +7,12 @@ from sqlalchemy.orm import Session
 from database import SessionLocal
 from database_models import User
 
-from schemas.user import UserRegister, UserLogin, UserResponse,Changepassword
+from schemas.user import (
+    UserRegister,
+    UserLogin,
+    UserResponse,
+    Changepassword
+)
 
 from utils.password import hash_password, verify_password
 
@@ -30,9 +36,9 @@ def get_db():
 
     try:
         yield db
-
     finally:
         db.close()
+
 
 # ==========================================
 # USER REGISTER
@@ -52,16 +58,17 @@ def register(
     # CHECK WHETHER EMAIL ALREADY EXISTS
     # ==========================================
 
-    existing_user = db.query(User).filter(
-        User.email == user.email
-    ).first()
+    existing_user = (
+        db.query(User)
+        .filter(User.email == user.email)
+        .first()
+    )
 
     if existing_user:
         raise HTTPException(
             status_code=400,
             detail="Email already registered"
         )
-
 
     # ==========================================
     # HASH PASSWORD
@@ -70,7 +77,6 @@ def register(
     hashed_password = hash_password(
         user.password
     )
-
 
     # ==========================================
     # CREATE USER
@@ -84,9 +90,7 @@ def register(
         parent_name=user.parent_name,
         parent_phone=user.parent_phone,
 
-        highest_qualification=(
-            user.highest_qualification
-        ),
+        highest_qualification=user.highest_qualification,
 
         address=user.address,
 
@@ -95,9 +99,9 @@ def register(
         profile_image=None,
 
         role="user",
+
         is_active=True
     )
-
 
     # ==========================================
     # SAVE USER
@@ -109,23 +113,31 @@ def register(
 
     db.refresh(new_user)
 
-
     return new_user
+
 
 # ==========================================
 # USER LOGIN
 # ==========================================
 
-@router.post("/login", tags=["User Authentication"])
+@router.post(
+    "/login",
+    tags=["User Authentication"]
+)
 def login(
     user: UserLogin,
     db: Session = Depends(get_db)
 ):
 
-    # Find user by email
-    db_user = db.query(User).filter(
-        User.email == user.email
-    ).first()
+    # ==========================================
+    # FIND USER
+    # ==========================================
+
+    db_user = (
+        db.query(User)
+        .filter(User.email == user.email)
+        .first()
+    )
 
     if not db_user:
         raise HTTPException(
@@ -133,7 +145,10 @@ def login(
             detail="Invalid email or password"
         )
 
-    # Verify password
+    # ==========================================
+    # VERIFY PASSWORD
+    # ==========================================
+
     password_correct = verify_password(
         user.password,
         db_user.password_hash
@@ -145,21 +160,30 @@ def login(
             detail="Invalid email or password"
         )
 
-    # Check active status
+    # ==========================================
+    # CHECK ACTIVE STATUS
+    # ==========================================
+
     if not db_user.is_active:
         raise HTTPException(
             status_code=403,
             detail="User account is inactive"
         )
 
-    # Restrict admin accounts from using general user login
-    if db_user.role == "admin":
+    # ==========================================
+    # RESTRICT SUPER ADMIN
+    # ==========================================
+
+    if db_user.role == "super_admin":
         raise HTTPException(
             status_code=403,
-            detail="Admin accounts must use the Admin Login API (/auth/admin-login)"
+            detail="Super admin accounts must use the Super Admin Login API (/auth/super-admin-login)"
         )
 
-    # Create JWT
+    # ==========================================
+    # CREATE JWT
+    # ==========================================
+
     token = create_access_token(
         user_id=db_user.id,
         role=db_user.role
@@ -172,19 +196,27 @@ def login(
 
 
 # ==========================================
-# ADMIN LOGIN
+# SUPER ADMIN LOGIN
 # ==========================================
 
-@router.post("/admin-login", tags=["Admin"])
+@router.post(
+    "/super-admin-login",
+    tags=["Super Admin"]
+)
 def admin_login(
     user: UserLogin,
     db: Session = Depends(get_db)
 ):
 
-    # Find user
-    db_user = db.query(User).filter(
-        User.email == user.email
-    ).first()
+    # ==========================================
+    # FIND USER
+    # ==========================================
+
+    db_user = (
+        db.query(User)
+        .filter(User.email == user.email)
+        .first()
+    )
 
     if not db_user:
         raise HTTPException(
@@ -192,7 +224,10 @@ def admin_login(
             detail="Invalid email or password"
         )
 
-    # Verify password
+    # ==========================================
+    # VERIFY PASSWORD
+    # ==========================================
+
     password_correct = verify_password(
         user.password,
         db_user.password_hash
@@ -204,14 +239,30 @@ def admin_login(
             detail="Invalid email or password"
         )
 
-    # Check admin role
-    if db_user.role != "admin":
+    # ==========================================
+    # CHECK SUPER ADMIN ROLE
+    # ==========================================
+
+    if db_user.role != "super_admin":
         raise HTTPException(
             status_code=403,
-            detail="Admin access required"
+            detail="Super admin access required"
         )
 
-    # Create admin JWT
+    # ==========================================
+    # CHECK ACTIVE STATUS
+    # ==========================================
+
+    if not db_user.is_active:
+        raise HTTPException(
+            status_code=403,
+            detail="Super admin account is inactive"
+        )
+
+    # ==========================================
+    # CREATE SUPER ADMIN JWT
+    # ==========================================
+
     token = create_access_token(
         user_id=db_user.id,
         role=db_user.role
@@ -234,7 +285,10 @@ def get_current_user(
 
     token = credentials.credentials
 
-    # Decode JWT
+    # ==========================================
+    # DECODE JWT
+    # ==========================================
+
     payload = decode_access_token(token)
 
     if not payload:
@@ -243,7 +297,10 @@ def get_current_user(
             detail="Invalid or expired token"
         )
 
-    # Get user ID from JWT
+    # ==========================================
+    # GET USER ID
+    # ==========================================
+
     user_id = payload.get("sub")
 
     if not user_id:
@@ -252,10 +309,15 @@ def get_current_user(
             detail="Invalid token"
         )
 
-    # Find user in database
-    db_user = db.query(User).filter(
-        User.id == int(user_id)
-    ).first()
+    # ==========================================
+    # FIND USER
+    # ==========================================
+
+    db_user = (
+        db.query(User)
+        .filter(User.id == int(user_id))
+        .first()
+    )
 
     if not db_user:
         raise HTTPException(
@@ -263,7 +325,10 @@ def get_current_user(
             detail="User not found"
         )
 
-    # Check active status
+    # ==========================================
+    # CHECK ACTIVE STATUS
+    # ==========================================
+
     if not db_user.is_active:
         raise HTTPException(
             status_code=403,
@@ -274,27 +339,31 @@ def get_current_user(
 
 
 # ==========================================
-# GET CURRENT ADMIN
+# GET CURRENT SUPER ADMIN
 # ==========================================
 
-def get_current_admin(
+def get_current_super_admin(
     current_user: User = Depends(get_current_user)
 ):
 
-    if current_user.role != "admin":
+    if current_user.role != "super_admin":
         raise HTTPException(
             status_code=403,
-            detail="Admin access required"
+            detail="Super admin access required"
         )
 
     return current_user
 
 
 # ==========================================
-# GET CURRENT USER PROFILE ENDPOINT
+# GET CURRENT USER PROFILE
 # ==========================================
 
-@router.get("/me", response_model=UserResponse, tags=["User Authentication"])
+@router.get(
+    "/me",
+    response_model=UserResponse,
+    tags=["User Authentication"]
+)
 def read_current_user(
     current_user: User = Depends(get_current_user)
 ):
@@ -302,73 +371,74 @@ def read_current_user(
 
 
 # ==========================================
-# GET ALL NON-ADMIN USERS (STUDENTS) ENDPOINT
+# GET ALL NON-SUPER-ADMIN USERS
 # ==========================================
 
-@router.get("/users", response_model=List[UserResponse], tags=["Admin"])
-def get_all_users(
-    db: Session = Depends(get_db),
-    current_admin: User = Depends(get_current_admin)
-):
-    """
-    Get all registered student users from database (excluding admin users)
-    """
-    users = db.query(User).filter(User.role != "admin").order_by(User.id.asc()).all()
-    return users
+# @router.get(
+#     "/users",
+#     response_model=List[UserResponse],
+#     tags=["Super Admin"]
+# )
+# def get_all_users(
+#     db: Session = Depends(get_db),
+#     current_admin: User = Depends(get_current_super_admin)
+# ):
+
+#     users = (
+#         db.query(User)
+#         .filter(User.role != "super_admin")
+#         .order_by(User.id.asc())
+#         .all()
+#     )
+
+#     return users
 
 
+# ==========================================
+# CHANGE SUPER ADMIN PASSWORD
+# ==========================================
 
-
-# api for change admin password 
-
-
-@router.put("/admin/change-password", tags=["Admin"])
+@router.put(
+    "/super-admin/change-password",
+    tags=["Super Admin"]
+)
 def change_admin_password(
-    password_data:Changepassword,
-    current_user:User=Depends(get_current_admin),
-    db:Session=Depends(get_db)
+    password_data: Changepassword,
+    current_user: User = Depends(get_current_super_admin),
+    db: Session = Depends(get_db)
 ):
-    
-    
-    
-    # verify current password 
 
+    # ==========================================
+    # VERIFY CURRENT PASSWORD
+    # ==========================================
 
-    password_correct=verify_password(
+    password_correct = verify_password(
         password_data.current_password,
         current_user.password_hash
-        
-        
     )
-    
-    
+
     if not password_correct:
         raise HTTPException(
             status_code=400,
-            detail="current password is incorrect "
+            detail="Current password is incorrect"
         )
-    
-    
-    
-    
-    # Hash new password
- 
-    new_password_hash=hash_password(
-    password_data.new_password
-    
-    
-     
- )   
 
+    # ==========================================
+    # HASH NEW PASSWORD
+    # ==========================================
 
+    new_password_hash = hash_password(
+        password_data.new_password
+    )
 
-# update password 
+    # ==========================================
+    # UPDATE PASSWORD
+    # ==========================================
 
-    current_user.password_hash=new_password_hash
+    current_user.password_hash = new_password_hash
 
     db.commit()
 
-
-    return{
-    "message":"Admin password updated successfully"
-}
+    return {
+        "message": "Super admin password updated successfully"
+    }

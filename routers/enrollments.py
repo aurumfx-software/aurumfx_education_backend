@@ -13,7 +13,7 @@ from schemas.enrollment import (
 
 from routers.auth import (
     get_current_user,
-    get_current_admin
+    get_current_super_admin
 )
 
 
@@ -208,133 +208,132 @@ def get_my_enrollments(
 
 # ==========================================
 # GET USERS ENROLLED IN A COURSE
-# ADMIN ONLY
+# SUPER ADMIN ONLY
 # ==========================================
 
-@router.get(
-    "/admin/course/{course_id}",
-    response_model=list[AdminEnrollmentResponse],
-    tags=["Admin"]
-)
-def get_course_enrollments(
-    course_id: int,
-    db: Session = Depends(get_db),
-    current_admin=Depends(get_current_admin)
-):
+# @router.get(
+#     "/super-admin/course/{course_id}",
+#     response_model=list[AdminEnrollmentResponse],
+#     tags=["Super Admin"]
+# )
+# def get_course_enrollments(
+#     course_id: int,
+#     db: Session = Depends(get_db),
+#     current_admin=Depends(get_current_super_admin)
+# ):
 
-    # ==========================================
-    # CHECK COURSE EXISTS
-    # ==========================================
+#     # ==========================================
+#     # CHECK COURSE EXISTS
+#     # ==========================================
 
-    course = db.query(Course).filter(
-        Course.id == course_id
-    ).first()
+#     course = db.query(Course).filter(
+#         Course.id == course_id
+#     ).first()
 
-    if not course:
-        raise HTTPException(
-            status_code=404,
-            detail="Course not found"
-        )
-
-
-    # ==========================================
-    # GET ENROLLMENTS FOR THIS COURSE
-    # ==========================================
-
-    enrollments = db.query(Enrollment).filter(
-        Enrollment.course_id == course_id
-    ).order_by(
-        Enrollment.enrolled_at.desc()
-    ).all()
+#     if not course:
+#         raise HTTPException(
+#             status_code=404,
+#             detail="Course not found"
+#         )
 
 
-    # ==========================================
-    # RETURN STUDENT DETAILS
-    # ==========================================
+#     # ==========================================
+#     # GET ENROLLMENTS FOR THIS COURSE
+#     # ==========================================
 
-    return [
-        {
-            "enrollment_id": enrollment.id,
-            "user_id": enrollment.user_id,
-
-            "full_name": enrollment.full_name,
-            "email": enrollment.email,
-            "phone": enrollment.phone,
-
-            "parent_name": enrollment.parent_name,
-            "parent_phone": enrollment.parent_phone,
-
-            "highest_qualification": (
-                enrollment.highest_qualification
-            ),
-
-            "address": enrollment.address,
-            "payment_plan": enrollment.payment_plan,
-
-            "total_fee": enrollment.total_fee,
-            "status": enrollment.status,
-            "enrolled_at": enrollment.enrolled_at
-        }
-
-        for enrollment in enrollments
-    ]
+#     enrollments = db.query(Enrollment).filter(
+#         Enrollment.course_id == course_id
+#     ).order_by(
+#         Enrollment.enrolled_at.desc()
+#     ).all()
 
 
+#     # ==========================================
+#     # RETURN STUDENT DETAILS
+#     # ==========================================
 
+#     return [
+#         {
+#             "enrollment_id": enrollment.id,
+#             "user_id": enrollment.user_id,
 
+#             "full_name": enrollment.full_name,
+#             "email": enrollment.email,
+#             "phone": enrollment.phone,
+
+#             "parent_name": enrollment.parent_name,
+#             "parent_phone": enrollment.parent_phone,
+
+#             "highest_qualification": (
+#                 enrollment.highest_qualification
+#             ),
+
+#             "address": enrollment.address,
+#             "payment_plan": enrollment.payment_plan,
+
+#             "total_fee": enrollment.total_fee,
+#             "status": enrollment.status,
+#             "enrolled_at": enrollment.enrolled_at
+#         }
+
+#         for enrollment in enrollments
+#     ]
 
 
 # ==========================================
 # UPDATE ENROLLMENT STATUS
-# ADMIN ONLY
+# SUPER ADMIN ONLY
 # ==========================================
 
-@router.put(
-    "/admin/{enrollment_id}/status",
-    tags=["Admin"]
-)
-def update_enrollment_status(
-    enrollment_id: int,
-    status_data: EnrollmentStatusUpdate,
-    db: Session = Depends(get_db),
-    current_admin=Depends(get_current_admin)
-):
+# @router.put(
+#     "/super-admin/{enrollment_id}/status",
+#     tags=["Super Admin"]
+# )
+# def update_enrollment_status(
+#     enrollment_id: int,
+#     status_data: EnrollmentStatusUpdate,
+#     db: Session = Depends(get_db),
+#     current_admin=Depends(get_current_super_admin)
+# ):
 
-    # ==========================================
-    # FIND ENROLLMENT
-    # ==========================================
+#     # ==========================================
+#     # FIND ENROLLMENT
+#     # ==========================================
 
-    enrollment = db.query(Enrollment).filter(
-        Enrollment.id == enrollment_id
-    ).first()
+#     enrollment = db.query(Enrollment).filter(
+#         Enrollment.id == enrollment_id
+#     ).first()
 
-    if not enrollment:
-        raise HTTPException(
-            status_code=404,
-            detail="Enrollment not found"
-        )
+#     if not enrollment:
+#         raise HTTPException(
+#             status_code=404,
+#             detail="Enrollment not found"
+#         )
 
-    # ==========================================
-    # ONLY APPROVED STATUS IS ALLOWED
-    # ==========================================
 
-    if status_data.status != "approved":
-        raise HTTPException(
-            status_code=400,
-            detail="Status can only be changed to approved"
-        )
+#     # ==========================================
+#     # ONLY APPROVED STATUS IS ALLOWED
+#     # ==========================================
 
-    # ==========================================
-    # UPDATE STATUS
-    # ==========================================
+#     if status_data.status != "approved":
+#         raise HTTPException(
+#             status_code=400,
+#             detail="Status can only be changed to approved"
+#         )
 
-    enrollment.status = "approved"
 
-    db.commit()
-    db.refresh(enrollment)
+#     # ==========================================
+#     # UPDATE STATUS
+#     # ==========================================
 
-    return {
-        "message": "Enrollment approved successfully",
-        "enrollment_id": enrollment.id,
-        "status": enrollment.status
-    }
+#     enrollment.status = "approved"
+
+#     db.commit()
+
+#     db.refresh(enrollment)
+
+#     return {
+#         "message": "Enrollment approved successfully",
+#         "enrollment_id": enrollment.id,
+#         "status": enrollment.status
+#     }

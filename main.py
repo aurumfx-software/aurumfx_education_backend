@@ -6,7 +6,7 @@ from sqlalchemy import text
 from database import SessionLocal,engine
 import database_models
 from fastapi.staticfiles import StaticFiles
-from routers import auth, courses, enquiries, settings,enrollments,announcements,profile
+from routers import auth, courses, enquiries, settings,enrollments,announcements,profile,branches
 
 
 app=FastAPI()
@@ -54,56 +54,8 @@ app.include_router(settings.router)
 app.include_router(enrollments.router)
 app.include_router(announcements.router)
 app.include_router(profile.router)
+app.include_router(branches.router)
 
 
 
 
-
-
-@app.get('/')
- 
-def greet():
-    # db=SessionLocal()
-    return {"message":"welcome to server"}
-
-
-
-
-
-@app.get("/test-db")
-def test_db():
-    db = SessionLocal()
-
-    try:
-        db.execute(text("SELECT 1"))
-        return {"message": "Database connected successfully"}
-    finally:
-        db.close()
-        
-        
-        
-        
-        
-        
-        
-
- #  APi for testing image upload to 
-
-
-@app.get("/test-spaces")
-def test_spaces():
-    from utils.spaces import spaces_client, SPACES_BUCKET
-
-    try:
-        spaces_client.head_bucket(
-            Bucket=SPACES_BUCKET
-        )
-
-        return {
-            "message": "DigitalOcean Spaces connected successfully"
-        }
-
-    except Exception as e:
-        return {
-            "error": str(e)
-        }
