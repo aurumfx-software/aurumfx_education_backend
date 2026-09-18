@@ -107,7 +107,6 @@ def get_branches(
 # ============================================================
 # CREATE BRANCH ADMIN
 # ============================================================
-
 @router.post(
     "/admins",
     response_model=BranchAdminResponse,
@@ -137,6 +136,30 @@ def create_branch_admin(
             detail="Cannot create admin for a deleted branch"
         )
 
+    # ==========================================
+    # CHECK IF BRANCH ALREADY HAS AN ADMIN
+    # ==========================================
+
+    existing_branch_admin = (
+        db.query(User)
+        .filter(
+            User.branch_id == admin.branch_id,
+            User.role == "branch_admin",
+            User.status == "Active"
+        )
+        .first()
+    )
+
+    if existing_branch_admin:
+        raise HTTPException(
+            status_code=400,
+            detail="This branch already has a branch admin"
+        )
+
+    # ==========================================
+    # CHECK EMAIL
+    # ==========================================
+
     existing_email = (
         db.query(User)
         .filter(User.email == admin.email)
@@ -148,6 +171,10 @@ def create_branch_admin(
             status_code=400,
             detail="Email already registered"
         )
+
+    # ==========================================
+    # GENERATE BRANCH ADMIN ID
+    # ==========================================
 
     branch_admin_id = (
         f"BA-{uuid.uuid4().hex[:8].upper()}"
