@@ -167,7 +167,7 @@ def get_course(
 @router.post(
     "/",
     response_model=CourseResponse,
-    tags=["Branch Admin"]
+    tags=["Branch Admin Courses"]
 )
 def add_course(
 
@@ -272,7 +272,7 @@ def add_course(
 @router.get(
     "/branch-admin/my-courses",
     response_model=list[CourseResponse],
-    tags=["Branch Admin"]
+    tags=["Branch Admin Courses"]
 )
 def get_my_courses(
 
@@ -301,7 +301,7 @@ def get_my_courses(
 @router.get(
     "/branch-admin/{course_id}",
     response_model=CourseResponse,
-    tags=["Branch Admin"]
+    tags=["Branch Admin Courses"]
 )
 def get_my_course(
 
@@ -340,7 +340,7 @@ def get_my_course(
 @router.put(
     "/branch-admin/{course_id}",
     response_model=CourseResponse,
-    tags=["Branch Admin"]
+    tags=["Branch Admin Courses"]
 )
 def update_course(
 
@@ -522,7 +522,7 @@ def update_course(
 
 @router.delete(
     "/branch-admin/{course_id}",
-    tags=["Branch Admin"]
+    tags=["Branch Admin Courses"]
 )
 def delete_course(
 
