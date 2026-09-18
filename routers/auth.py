@@ -5,13 +5,14 @@ from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from sqlalchemy.orm import Session
 
 from database import SessionLocal
-from database_models import User
+from database_models import User,Branch
 
 from schemas.user import (
     UserRegister,
     UserLogin,
     UserResponse,
-    Changepassword
+    Changepassword,
+    BranchAdminLogin
 )
 
 from utils.password import hash_password, verify_password
@@ -446,4 +447,113 @@ def change_admin_password(
 
     return {
         "message": "Super admin password updated successfully"
+    }
+
+
+
+
+
+# ==========================================
+# BRANCH ADMIN LOGIN
+# ==========================================
+
+@router.post(
+    "/branch-admin-login",
+    tags=["Branch Admin Authentication"]
+)
+def branch_admin_login(
+    login_data: BranchAdminLogin,
+    db: Session = Depends(get_db)
+):
+
+    # ==========================================
+    # FIND BRANCH ADMIN
+    # ==========================================
+
+    db_user = (
+        db.query(User)
+        .filter(
+            User.email == login_data.email,
+            User.role == "branch_admin"
+        )
+        .first()
+    )
+
+    if not db_user:
+        raise HTTPException(
+            status_code=401,
+            detail="Invalid email or password"
+        )
+
+    # ==========================================
+    # CHECK PASSWORD
+    # ==========================================
+
+    password_correct = verify_password(
+        login_data.password,
+        db_user.password_hash
+    )
+
+    if not password_correct:
+        raise HTTPException(
+            status_code=401,
+            detail="Invalid email or password"
+        )
+
+    # ==========================================
+    # CHECK ADMIN STATUS
+    # ==========================================
+
+    if db_user.status != "Active":
+        raise HTTPException(
+            status_code=403,
+            detail="Branch admin account is inactive"
+        )
+
+    # ==========================================
+    # CHECK BRANCH
+    # ==========================================
+
+    branch = (
+        db.query(Branch)
+        .filter(Branch.id == db_user.branch_id)
+        .first()
+    )
+
+    if not branch:
+        raise HTTPException(
+            status_code=404,
+            detail="Branch not found"
+        )
+
+    # ==========================================
+    # CHECK BRANCH STATUS
+    # ==========================================
+
+    if branch.status != "Active":
+        raise HTTPException(
+            status_code=403,
+            detail="Branch is inactive"
+        )
+
+    # ==========================================
+    # CREATE JWT
+    # ==========================================
+
+    token = create_access_token(
+        user_id=db_user.id,
+        role=db_user.role
+    )
+
+    # ==========================================
+    # RESPONSE
+    # ==========================================
+
+    return {
+        "access_token": token,
+        "token_type": "bearer",
+        "role": db_user.role,
+        "branch_admin_id": db_user.branch_admin_id,
+        "branch_id": db_user.branch_id,
+        "name": db_user.name
     }

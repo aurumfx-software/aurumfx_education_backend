@@ -166,6 +166,12 @@ class Course(Base):
         index=True
     )
 
+    branch_id = Column(
+        Integer,
+        ForeignKey("branches.id"),
+        nullable=False
+    )
+
     title = Column(
         String,
         nullable=False
@@ -420,6 +426,12 @@ class Announcement(Base):
         Integer,
         primary_key=True,
         index=True
+    )
+    
+    branch_id = Column(
+        Integer,
+        ForeignKey("branches.id"),
+        nullable=False
     )
 
     title = Column(

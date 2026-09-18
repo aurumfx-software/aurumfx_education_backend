@@ -14,11 +14,11 @@ from fastapi import (
 from sqlalchemy.orm import Session
 
 from database import SessionLocal
-from database_models import Course
+from database_models import Course, User, Branch
 
 from schemas.course import CourseResponse
 
-from routers.auth import get_current_super_admin
+from routers.auth import get_current_user
 
 from utils.spaces import (
     spaces_client,
@@ -45,6 +45,63 @@ def get_db():
 
 
 # ==========================================
+# BRANCH ADMIN AUTHENTICATION
+# ==========================================
+
+def get_current_branch_admin(
+    current_user=Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    """
+    Allow only active branch admins.
+    """
+
+    if current_user.role != "branch_admin":
+        raise HTTPException(
+            status_code=403,
+            detail="Branch admin access required"
+        )
+
+    if current_user.status != "Active":
+        raise HTTPException(
+            status_code=403,
+            detail="Branch admin account is inactive"
+        )
+
+    if not current_user.branch_id:
+        raise HTTPException(
+            status_code=400,
+            detail="Branch admin is not assigned to a branch"
+        )
+
+    # ==========================================
+    # CHECK BRANCH
+    # ==========================================
+
+    branch = (
+        db.query(Branch)
+        .filter(
+            Branch.id == current_user.branch_id
+        )
+        .first()
+    )
+
+    if not branch:
+        raise HTTPException(
+            status_code=404,
+            detail="Branch not found"
+        )
+
+    if branch.status != "Active":
+        raise HTTPException(
+            status_code=403,
+            detail="Branch is inactive"
+        )
+
+    return current_user
+
+
+# ==========================================
 # GET ALL COURSES
 # PUBLIC
 # ==========================================
@@ -60,7 +117,9 @@ def get_all_courses(
 
     courses = (
         db.query(Course)
-        .filter(Course.is_active == True)
+        .filter(
+            Course.is_active == True
+        )
         .all()
     )
 
@@ -84,7 +143,10 @@ def get_course(
 
     course = (
         db.query(Course)
-        .filter(Course.id == course_id)
+        .filter(
+            Course.id == course_id,
+            Course.is_active == True
+        )
         .first()
     )
 
@@ -99,325 +161,444 @@ def get_course(
 
 # ==========================================
 # ADD COURSE
-# SUPER ADMIN ONLY
+# BRANCH ADMIN ONLY
 # ==========================================
 
-# @router.post(
-#     "/",
-#     response_model=CourseResponse,
-#     tags=["Super Admin"]
-# )
-# def add_course(
-#     title: str = Form(...),
-#     description: str = Form(...),
-#     price: float = Form(...),
-#     duration: str = Form(...),
-#     category: str = Form(...),
-#     level: str = Form(...),
+@router.post(
+    "/",
+    response_model=CourseResponse,
+    tags=["Branch Admin"]
+)
+def add_course(
 
-#     # Curriculum comes as JSON string
-#     curriculum: str = Form(...),
+    title: str = Form(...),
+    description: str = Form(...),
+    price: float = Form(...),
+    duration: str = Form(...),
+    category: str = Form(...),
+    level: str = Form(...),
 
-#     image: UploadFile = File(...),
+    # Curriculum comes as JSON string
+    curriculum: str = Form(...),
 
-#     db: Session = Depends(get_db),
-#     admin=Depends(get_current_super_admin)
-# ):
+    image: UploadFile = File(...),
 
-#     # ==========================================
-#     # CONVERT CURRICULUM JSON STRING
-#     # ==========================================
+    db: Session = Depends(get_db),
 
-#     try:
-#         curriculum_data = json.loads(curriculum)
+    branch_admin=Depends(get_current_branch_admin)
+):
 
-#     except json.JSONDecodeError:
-#         raise HTTPException(
-#             status_code=400,
-#             detail="Invalid curriculum JSON"
-#         )
+    # ==========================================
+    # CONVERT CURRICULUM JSON STRING
+    # ==========================================
 
+    try:
 
-#     # ==========================================
-#     # UPLOAD IMAGE TO DIGITALOCEAN SPACES
-#     # ==========================================
+        curriculum_data = json.loads(
+            curriculum
+        )
 
-#     file_extension = os.path.splitext(
-#         image.filename
-#     )[1]
+    except json.JSONDecodeError:
 
-#     file_name = (
-#         f"courses/{uuid.uuid4()}{file_extension}"
-#     )
-
-#     spaces_client.upload_fileobj(
-#         image.file,
-#         SPACES_BUCKET,
-#         file_name,
-#         ExtraArgs={
-#             "ContentType": image.content_type,
-#             "ACL": "public-read"
-#         }
-#     )
-
-#     image_url = (
-#         f"{os.getenv('SPACES_PUBLIC_URL')}/{file_name}"
-#     )
+        raise HTTPException(
+            status_code=400,
+            detail="Invalid curriculum JSON"
+        )
 
 
-#     # ==========================================
-#     # SAVE COURSE
-#     # ==========================================
+    # ==========================================
+    # UPLOAD IMAGE TO DIGITALOCEAN SPACES
+    # ==========================================
 
-#     new_course = Course(
-#         title=title,
-#         description=description,
-#         price=price,
-#         duration=duration,
-#         category=category,
-#         level=level,
-#         curriculum=curriculum_data,
-#         image=image_url
-#     )
+    file_extension = os.path.splitext(
+        image.filename
+    )[1]
 
-#     db.add(new_course)
+    file_name = (
+        f"courses/{uuid.uuid4()}{file_extension}"
+    )
 
-#     db.commit()
+    spaces_client.upload_fileobj(
+        image.file,
+        SPACES_BUCKET,
+        file_name,
+        ExtraArgs={
+            "ContentType": image.content_type,
+            "ACL": "public-read"
+        }
+    )
 
-#     db.refresh(new_course)
+    image_url = (
+        f"{os.getenv('SPACES_PUBLIC_URL')}/{file_name}"
+    )
 
-#     return new_course
+
+    # ==========================================
+    # SAVE COURSE
+    # ==========================================
+
+    new_course = Course(
+
+        # IMPORTANT:
+        # Automatically assign logged-in
+        # branch admin's branch
+        branch_id=branch_admin.branch_id,
+
+        title=title,
+        description=description,
+        price=price,
+        duration=duration,
+        category=category,
+        level=level,
+        curriculum=curriculum_data,
+        image=image_url,
+        is_active=True
+    )
+
+    db.add(new_course)
+
+    db.commit()
+
+    db.refresh(new_course)
+
+    return new_course
+
+
+# ==========================================
+# GET BRANCH ADMIN COURSES
+# BRANCH ADMIN ONLY
+# ==========================================
+
+@router.get(
+    "/branch-admin/my-courses",
+    response_model=list[CourseResponse],
+    tags=["Branch Admin"]
+)
+def get_my_courses(
+
+    db: Session = Depends(get_db),
+
+    branch_admin=Depends(get_current_branch_admin)
+):
+
+    courses = (
+        db.query(Course)
+        .filter(
+            Course.branch_id == branch_admin.branch_id,
+            Course.is_active == True
+        )
+        .all()
+    )
+
+    return courses
+
+
+# ==========================================
+# GET BRANCH ADMIN COURSE BY ID
+# BRANCH ADMIN ONLY
+# ==========================================
+
+@router.get(
+    "/branch-admin/{course_id}",
+    response_model=CourseResponse,
+    tags=["Branch Admin"]
+)
+def get_my_course(
+
+    course_id: int,
+
+    db: Session = Depends(get_db),
+
+    branch_admin=Depends(get_current_branch_admin)
+):
+
+    course = (
+        db.query(Course)
+        .filter(
+            Course.id == course_id,
+            Course.branch_id == branch_admin.branch_id,
+            Course.is_active == True
+        )
+        .first()
+    )
+
+    if not course:
+
+        raise HTTPException(
+            status_code=404,
+            detail="Course not found in your branch"
+        )
+
+    return course
 
 
 # ==========================================
 # UPDATE COURSE
-# SUPER ADMIN ONLY
+# BRANCH ADMIN ONLY
 # ==========================================
 
-# @router.put(
-#     "/{course_id}",
-#     response_model=CourseResponse,
-#     tags=["Super Admin"]
-# )
-# def update_course(
-#     course_id: int,
+@router.put(
+    "/branch-admin/{course_id}",
+    response_model=CourseResponse,
+    tags=["Branch Admin"]
+)
+def update_course(
 
-#     title: str = Form(...),
-#     description: str = Form(...),
-#     price: float = Form(...),
-#     duration: str = Form(...),
-#     category: str = Form(...),
-#     level: str = Form(...),
+    course_id: int,
 
-#     curriculum: str = Form(...),
+    title: str = Form(...),
+    description: str = Form(...),
+    price: float = Form(...),
+    duration: str = Form(...),
+    category: str = Form(...),
+    level: str = Form(...),
 
-#     image: UploadFile | None = File(None),
+    curriculum: str = Form(...),
 
-#     db: Session = Depends(get_db),
-#     admin=Depends(get_current_super_admin)
-# ):
+    image: UploadFile | None = File(None),
 
-#     # ==========================================
-#     # FIND COURSE
-#     # ==========================================
+    db: Session = Depends(get_db),
 
-#     db_course = (
-#         db.query(Course)
-#         .filter(Course.id == course_id)
-#         .first()
-#     )
+    branch_admin=Depends(get_current_branch_admin)
+):
 
-#     if not db_course:
-#         raise HTTPException(
-#             status_code=404,
-#             detail="Course not found"
-#         )
+    # ==========================================
+    # FIND COURSE
+    # ONLY FROM ADMIN'S BRANCH
+    # ==========================================
 
+    db_course = (
+        db.query(Course)
+        .filter(
+            Course.id == course_id,
+            Course.branch_id == branch_admin.branch_id
+        )
+        .first()
+    )
 
-#     # ==========================================
-#     # CONVERT CURRICULUM
-#     # ==========================================
+    if not db_course:
 
-#     try:
-#         curriculum_data = json.loads(curriculum)
-
-#     except json.JSONDecodeError:
-#         raise HTTPException(
-#             status_code=400,
-#             detail="Invalid curriculum JSON"
-#         )
+        raise HTTPException(
+            status_code=404,
+            detail="Course not found in your branch"
+        )
 
 
-#     # ==========================================
-#     # UPDATE TEXT FIELDS
-#     # ==========================================
+    # ==========================================
+    # CHECK ACTIVE
+    # ==========================================
 
-#     db_course.title = title
-#     db_course.description = description
-#     db_course.price = price
-#     db_course.duration = duration
-#     db_course.category = category
-#     db_course.level = level
-#     db_course.curriculum = curriculum_data
+    if not db_course.is_active:
 
-
-#     # ==========================================
-#     # UPDATE IMAGE IF PROVIDED
-#     # ==========================================
-
-#     if image:
-
-#         # ------------------------------------------
-#         # DELETE OLD IMAGE
-#         # ------------------------------------------
-
-#         if db_course.image:
-
-#             public_url = os.getenv(
-#                 "SPACES_PUBLIC_URL"
-#             )
-
-#             if (
-#                 public_url
-#                 and db_course.image.startswith(public_url)
-#             ):
-
-#                 old_key = db_course.image.replace(
-#                     f"{public_url}/",
-#                     ""
-#                 )
-
-#                 try:
-
-#                     spaces_client.delete_object(
-#                         Bucket=SPACES_BUCKET,
-#                         Key=old_key
-#                     )
-
-#                 except Exception as e:
-
-#                     print(
-#                         f"Error deleting old image: {e}"
-#                     )
+        raise HTTPException(
+            status_code=404,
+            detail="Course is inactive"
+        )
 
 
-#         # ------------------------------------------
-#         # UPLOAD NEW IMAGE
-#         # ------------------------------------------
+    # ==========================================
+    # CONVERT CURRICULUM
+    # ==========================================
 
-#         file_extension = os.path.splitext(
-#             image.filename
-#         )[1]
+    try:
 
-#         file_name = (
-#             f"courses/{uuid.uuid4()}{file_extension}"
-#         )
+        curriculum_data = json.loads(
+            curriculum
+        )
 
-#         spaces_client.upload_fileobj(
-#             image.file,
-#             SPACES_BUCKET,
-#             file_name,
-#             ExtraArgs={
-#                 "ContentType": image.content_type,
-#                 "ACL": "public-read"
-#             }
-#         )
+    except json.JSONDecodeError:
 
-#         image_url = (
-#             f"{os.getenv('SPACES_PUBLIC_URL')}/{file_name}"
-#         )
-
-#         db_course.image = image_url
+        raise HTTPException(
+            status_code=400,
+            detail="Invalid curriculum JSON"
+        )
 
 
-#     # ==========================================
-#     # SAVE CHANGES
-#     # ==========================================
+    # ==========================================
+    # UPDATE TEXT FIELDS
+    # ==========================================
 
-#     db.commit()
+    db_course.title = title
 
-#     db.refresh(db_course)
+    db_course.description = description
 
-#     return db_course
+    db_course.price = price
+
+    db_course.duration = duration
+
+    db_course.category = category
+
+    db_course.level = level
+
+    db_course.curriculum = curriculum_data
+
+
+    # ==========================================
+    # UPDATE IMAGE IF PROVIDED
+    # ==========================================
+
+    if image:
+
+        # ------------------------------------------
+        # DELETE OLD IMAGE
+        # ------------------------------------------
+
+        if db_course.image:
+
+            public_url = os.getenv(
+                "SPACES_PUBLIC_URL"
+            )
+
+            if (
+                public_url
+                and db_course.image.startswith(
+                    public_url
+                )
+            ):
+
+                old_key = db_course.image.replace(
+                    f"{public_url}/",
+                    ""
+                )
+
+                try:
+
+                    spaces_client.delete_object(
+                        Bucket=SPACES_BUCKET,
+                        Key=old_key
+                    )
+
+                except Exception as e:
+
+                    print(
+                        f"Error deleting old image: {e}"
+                    )
+
+
+        # ------------------------------------------
+        # UPLOAD NEW IMAGE
+        # ------------------------------------------
+
+        file_extension = os.path.splitext(
+            image.filename
+        )[1]
+
+        file_name = (
+            f"courses/{uuid.uuid4()}{file_extension}"
+        )
+
+        spaces_client.upload_fileobj(
+            image.file,
+            SPACES_BUCKET,
+            file_name,
+            ExtraArgs={
+                "ContentType": image.content_type,
+                "ACL": "public-read"
+            }
+        )
+
+        image_url = (
+            f"{os.getenv('SPACES_PUBLIC_URL')}/{file_name}"
+        )
+
+        db_course.image = image_url
+
+
+    # ==========================================
+    # SAVE CHANGES
+    # ==========================================
+
+    db.commit()
+
+    db.refresh(db_course)
+
+    return db_course
 
 
 # ==========================================
 # DELETE COURSE
-# SUPER ADMIN ONLY
+# BRANCH ADMIN ONLY
 # ==========================================
 
-# @router.delete(
-#     "/{course_id}",
-#     tags=["Super Admin"]
-# )
-# def delete_course(
-#     course_id: int,
+@router.delete(
+    "/branch-admin/{course_id}",
+    tags=["Branch Admin"]
+)
+def delete_course(
 
-#     db: Session = Depends(get_db),
+    course_id: int,
 
-#     admin=Depends(get_current_super_admin)
-# ):
+    db: Session = Depends(get_db),
 
-#     # ==========================================
-#     # FIND COURSE
-#     # ==========================================
+    branch_admin=Depends(get_current_branch_admin)
+):
 
-#     db_course = (
-#         db.query(Course)
-#         .filter(Course.id == course_id)
-#         .first()
-#     )
+    # ==========================================
+    # FIND COURSE
+    # ONLY FROM ADMIN'S BRANCH
+    # ==========================================
 
-#     if not db_course:
+    db_course = (
+        db.query(Course)
+        .filter(
+            Course.id == course_id,
+            Course.branch_id == branch_admin.branch_id
+        )
+        .first()
+    )
 
-#         raise HTTPException(
-#             status_code=404,
-#             detail="Course not found"
-#         )
+    if not db_course:
 
-
-#     # ==========================================
-#     # DELETE IMAGE FROM DIGITALOCEAN SPACES
-#     # ==========================================
-
-#     if db_course.image:
-
-#         public_url = os.getenv(
-#             "SPACES_PUBLIC_URL"
-#         )
-
-#         if (
-#             public_url
-#             and db_course.image.startswith(public_url)
-#         ):
-
-#             old_key = db_course.image.replace(
-#                 f"{public_url}/",
-#                 ""
-#             )
-
-#             try:
-
-#                 spaces_client.delete_object(
-#                     Bucket=SPACES_BUCKET,
-#                     Key=old_key
-#                 )
-
-#             except Exception as e:
-
-#                 print(
-#                     f"Error deleting image from Spaces: {e}"
-#                 )
+        raise HTTPException(
+            status_code=404,
+            detail="Course not found in your branch"
+        )
 
 
-#     # ==========================================
-#     # DELETE COURSE FROM DATABASE
-#     # ==========================================
+    # ==========================================
+    # DELETE IMAGE FROM DIGITALOCEAN SPACES
+    # ==========================================
 
-#     db.delete(db_course)
+    if db_course.image:
 
-#     db.commit()
+        public_url = os.getenv(
+            "SPACES_PUBLIC_URL"
+        )
 
-#     return {
-#         "message": "Course deleted successfully"
-#     }
+        if (
+            public_url
+            and db_course.image.startswith(
+                public_url
+            )
+        ):
+
+            old_key = db_course.image.replace(
+                f"{public_url}/",
+                ""
+            )
+
+            try:
+
+                spaces_client.delete_object(
+                    Bucket=SPACES_BUCKET,
+                    Key=old_key
+                )
+
+            except Exception as e:
+
+                print(
+                    f"Error deleting image from Spaces: {e}"
+                )
+
+
+    # ==========================================
+    # DELETE COURSE FROM DATABASE
+    # ==========================================
+
+    db.delete(db_course)
+
+    db.commit()
+
+    return {
+        "message": "Course deleted successfully"
+    }

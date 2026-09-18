@@ -9,6 +9,7 @@ class AnnouncementCreate(BaseModel):
 
 class AnnouncementResponse(BaseModel):
     id: int
+    branch_id: int | None = None
     title: str
     message: str
     image: str | None = None
