@@ -14,7 +14,7 @@ from routers.auth import get_current_user
 
 router = APIRouter(
     prefix="/payments",
-    tags=["Payments"]
+    tags=["Student Payments"]
 )
 
 
