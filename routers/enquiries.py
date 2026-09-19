@@ -30,7 +30,7 @@ router = APIRouter(
 @router.post(
     "",
     response_model=EnquiryResponse,
-    tags=["User"]
+    tags=["Student Enquiries"]
 )
 def create_enquiry(
     enquiry_data: EnquiryCreate,

@@ -1,11 +1,578 @@
+# from typing import List
+
+# from fastapi import APIRouter, Depends, HTTPException
+# from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
+# from sqlalchemy.orm import Session
+
+# from database import SessionLocal
+# from database_models import User,Branch
+
+# from schemas.user import (
+#     UserRegister,
+#     UserLogin,
+#     UserResponse,
+#     Changepassword,
+#     BranchAdminLogin
+# )
+
+# from utils.password import hash_password, verify_password
+
+# from utils.jwt import create_access_token, decode_access_token
+
+
+# router = APIRouter(
+#     prefix="/auth"
+# )
+
+
+# security = HTTPBearer()
+
+
+# # ==========================================
+# # DATABASE DEPENDENCY
+# # ==========================================
+
+# def get_db():
+#     db = SessionLocal()
+
+#     try:
+#         yield db
+#     finally:
+#         db.close()
+
+
+# # ==========================================
+# # USER REGISTER
+# # ==========================================
+
+# @router.post(
+#     "/register",
+#     response_model=UserResponse,
+#     tags=["User Authentication"]
+# )
+# def register(
+#     user: UserRegister,
+#     db: Session = Depends(get_db)
+# ):
+
+#     # ==========================================
+#     # CHECK WHETHER EMAIL ALREADY EXISTS
+#     # ==========================================
+
+#     existing_user = (
+#         db.query(User)
+#         .filter(User.email == user.email)
+#         .first()
+#     )
+
+#     if existing_user:
+#         raise HTTPException(
+#             status_code=400,
+#             detail="Email already registered"
+#         )
+
+#     # ==========================================
+#     # HASH PASSWORD
+#     # ==========================================
+
+#     hashed_password = hash_password(
+#         user.password
+#     )
+
+#     # ==========================================
+#     # CREATE USER
+#     # ==========================================
+
+#     new_user = User(
+#         name=user.name,
+#         email=user.email,
+#         phone=user.phone,
+
+#         parent_name=user.parent_name,
+#         parent_phone=user.parent_phone,
+
+#         highest_qualification=user.highest_qualification,
+
+#         address=user.address,
+
+#         password_hash=hashed_password,
+
+#         profile_image=None,
+
+#         role="user",
+
+#         status="Active"
+#     )
+
+#     # ==========================================
+#     # SAVE USER
+#     # ==========================================
+
+#     db.add(new_user)
+
+#     db.commit()
+
+#     db.refresh(new_user)
+
+#     return new_user
+
+
+# # ==========================================
+# # USER LOGIN
+# # ==========================================
+
+# @router.post(
+#     "/login",
+#     tags=["User Authentication"]
+# )
+# def login(
+#     user: UserLogin,
+#     db: Session = Depends(get_db)
+# ):
+
+#     # ==========================================
+#     # FIND USER
+#     # ==========================================
+
+#     db_user = (
+#         db.query(User)
+#         .filter(User.email == user.email)
+#         .first()
+#     )
+
+#     if not db_user:
+#         raise HTTPException(
+#             status_code=401,
+#             detail="Invalid email or password"
+#         )
+
+#     # ==========================================
+#     # VERIFY PASSWORD
+#     # ==========================================
+
+#     password_correct = verify_password(
+#         user.password,
+#         db_user.password_hash
+#     )
+
+#     if not password_correct:
+#         raise HTTPException(
+#             status_code=401,
+#             detail="Invalid email or password"
+#         )
+
+#     # ==========================================
+#     # CHECK ACTIVE STATUS
+#     # ==========================================
+
+#     if db_user.status != "Active":
+#         raise HTTPException(
+#             status_code=403,
+#             detail="User account is inactive"
+#         )
+
+#     # ==========================================
+#     # RESTRICT SUPER ADMIN
+#     # ==========================================
+
+#     if db_user.role == "super_admin":
+#         raise HTTPException(
+#             status_code=403,
+#             detail="Super admin accounts must use the Super Admin Login API (/auth/super-admin-login)"
+#         )
+
+#     # ==========================================
+#     # CREATE JWT
+#     # ==========================================
+
+#     token = create_access_token(
+#         user_id=db_user.id,
+#         role=db_user.role
+#     )
+
+#     return {
+#         "access_token": token,
+#         "token_type": "bearer"
+#     }
+
+
+# # ==========================================
+# # SUPER ADMIN LOGIN
+# # ==========================================
+
+# @router.post(
+#     "/super-admin-login",
+#     tags=["Super Admin"]
+# )
+# def admin_login(
+#     user: UserLogin,
+#     db: Session = Depends(get_db)
+# ):
+
+#     # ==========================================
+#     # FIND USER
+#     # ==========================================
+
+#     db_user = (
+#         db.query(User)
+#         .filter(User.email == user.email)
+#         .first()
+#     )
+
+#     if not db_user:
+#         raise HTTPException(
+#             status_code=401,
+#             detail="Invalid email or password"
+#         )
+
+#     # ==========================================
+#     # VERIFY PASSWORD
+#     # ==========================================
+
+#     password_correct = verify_password(
+#         user.password,
+#         db_user.password_hash
+#     )
+
+#     if not password_correct:
+#         raise HTTPException(
+#             status_code=401,
+#             detail="Invalid email or password"
+#         )
+
+#     # ==========================================
+#     # CHECK SUPER ADMIN ROLE
+#     # ==========================================
+
+#     if db_user.role != "super_admin":
+#         raise HTTPException(
+#             status_code=403,
+#             detail="Super admin access required"
+#         )
+
+#     # ==========================================
+#     # CHECK ACTIVE STATUS
+#     # ==========================================
+
+#     if db_user.status != "Active":
+#         raise HTTPException(
+#             status_code=403,
+#             detail="Super admin account is inactive"
+#         )
+
+#     # ==========================================
+#     # CREATE SUPER ADMIN JWT
+#     # ==========================================
+
+#     token = create_access_token(
+#         user_id=db_user.id,
+#         role=db_user.role
+#     )
+
+#     return {
+#         "access_token": token,
+#         "token_type": "bearer"
+#     }
+
+
+# # ==========================================
+# # GET CURRENT USER
+# # ==========================================
+
+# def get_current_user(
+#     credentials: HTTPAuthorizationCredentials = Depends(security),
+#     db: Session = Depends(get_db)
+# ):
+
+#     # ==========================================
+#     # GET TOKEN
+#     # ==========================================
+
+#     token = credentials.credentials
+
+#     # ==========================================
+#     # DECODE JWT
+#     # ==========================================
+
+#     payload = decode_access_token(token)
+
+#     if not payload:
+#         raise HTTPException(
+#             status_code=401,
+#             detail="Invalid or expired token"
+#         )
+
+#     # ==========================================
+#     # GET USER ID
+#     # ==========================================
+
+#     user_id = payload.get("sub")
+
+#     if not user_id:
+#         raise HTTPException(
+#             status_code=401,
+#             detail="Invalid token"
+#         )
+
+#     # ==========================================
+#     # FIND USER
+#     # ==========================================
+
+#     db_user = (
+#         db.query(User)
+#         .filter(User.id == int(user_id))
+#         .first()
+#     )
+
+#     if not db_user:
+#         raise HTTPException(
+#             status_code=401,
+#             detail="User not found"
+#         )
+
+#     # ==========================================
+#     # CHECK ACTIVE STATUS
+#     # ==========================================
+
+#     if db_user.status != "Active":
+#         raise HTTPException(
+#             status_code=403,
+#             detail="User account is inactive"
+#         )
+
+#     return db_user
+
+
+# # ==========================================
+# # GET CURRENT SUPER ADMIN
+# # ==========================================
+
+# def get_current_super_admin(
+#     current_user: User = Depends(get_current_user)
+# ):
+
+#     if current_user.role != "super_admin":
+#         raise HTTPException(
+#             status_code=403,
+#             detail="Super admin access required"
+#         )
+
+#     return current_user
+
+
+# # ==========================================
+# # GET CURRENT USER PROFILE
+# # ==========================================
+
+# @router.get(
+#     "/me",
+#     response_model=UserResponse,
+#     tags=["User Authentication"]
+# )
+# def read_current_user(
+#     current_user: User = Depends(get_current_user)
+# ):
+
+#     return current_user
+
+
+# # ==========================================
+# # GET ALL NON-SUPER-ADMIN USERS
+# # ==========================================
+
+# # @router.get(
+# #     "/users",
+# #     response_model=List[UserResponse],
+# #     tags=["Super Admin"]
+# # )
+# # def get_all_users(
+# #     db: Session = Depends(get_db),
+# #     current_admin: User = Depends(get_current_super_admin)
+# # ):
+
+# #     users = (
+# #         db.query(User)
+# #         .filter(User.role != "super_admin")
+# #         .order_by(User.id.asc())
+# #         .all()
+# #     )
+
+# #     return users
+
+
+# # ==========================================
+# # CHANGE SUPER ADMIN PASSWORD
+# # ==========================================
+
+# @router.put(
+#     "/super-admin/change-password",
+#     tags=["Super Admin"]
+# )
+# def change_admin_password(
+#     password_data: Changepassword,
+#     current_user: User = Depends(get_current_super_admin),
+#     db: Session = Depends(get_db)
+# ):
+
+#     # ==========================================
+#     # VERIFY CURRENT PASSWORD
+#     # ==========================================
+
+#     password_correct = verify_password(
+#         password_data.current_password,
+#         current_user.password_hash
+#     )
+
+#     if not password_correct:
+#         raise HTTPException(
+#             status_code=400,
+#             detail="Current password is incorrect"
+#         )
+
+#     # ==========================================
+#     # HASH NEW PASSWORD
+#     # ==========================================
+
+#     new_password_hash = hash_password(
+#         password_data.new_password
+#     )
+
+#     # ==========================================
+#     # UPDATE PASSWORD
+#     # ==========================================
+
+#     current_user.password_hash = new_password_hash
+
+#     db.commit()
+
+#     return {
+#         "message": "Super admin password updated successfully"
+#     }
+
+
+
+
+
+# # ==========================================
+# # BRANCH ADMIN LOGIN
+# # ==========================================
+
+# @router.post(
+#     "/branch-admin-login",
+#     tags=["Branch Admin Authentication"]
+# )
+# def branch_admin_login(
+#     login_data: BranchAdminLogin,
+#     db: Session = Depends(get_db)
+# ):
+
+#     # ==========================================
+#     # FIND BRANCH ADMIN
+#     # ==========================================
+
+#     db_user = (
+#         db.query(User)
+#         .filter(
+#             User.email == login_data.email,
+#             User.role == "branch_admin"
+#         )
+#         .first()
+#     )
+
+#     if not db_user:
+#         raise HTTPException(
+#             status_code=401,
+#             detail="Invalid email or password"
+#         )
+
+#     # ==========================================
+#     # CHECK PASSWORD
+#     # ==========================================
+
+#     password_correct = verify_password(
+#         login_data.password,
+#         db_user.password_hash
+#     )
+
+#     if not password_correct:
+#         raise HTTPException(
+#             status_code=401,
+#             detail="Invalid email or password"
+#         )
+
+#     # ==========================================
+#     # CHECK ADMIN STATUS
+#     # ==========================================
+
+#     if db_user.status != "Active":
+#         raise HTTPException(
+#             status_code=403,
+#             detail="Branch admin account is inactive"
+#         )
+
+#     # ==========================================
+#     # CHECK BRANCH
+#     # ==========================================
+
+#     branch = (
+#         db.query(Branch)
+#         .filter(Branch.id == db_user.branch_id)
+#         .first()
+#     )
+
+#     if not branch:
+#         raise HTTPException(
+#             status_code=404,
+#             detail="Branch not found"
+#         )
+
+#     # ==========================================
+#     # CHECK BRANCH STATUS
+#     # ==========================================
+
+#     if branch.status != "Active":
+#         raise HTTPException(
+#             status_code=403,
+#             detail="Branch is inactive"
+#         )
+
+#     # ==========================================
+#     # CREATE JWT
+#     # ==========================================
+
+#     token = create_access_token(
+#         user_id=db_user.id,
+#         role=db_user.role
+#     )
+
+#     # ==========================================
+#     # RESPONSE
+#     # ==========================================
+
+#     return {
+#         "access_token": token,
+#         "token_type": "bearer",
+#         "role": db_user.role,
+#         "branch_admin_id": db_user.branch_admin_id,
+#         "branch_id": db_user.branch_id,
+#         "name": db_user.name
+#     }
+
+
+
+
+
+
+
+
+
 from typing import List
 
-from fastapi import APIRouter, Depends, HTTPException
-from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
+from fastapi import APIRouter, Depends, HTTPException, Response, Request
 from sqlalchemy.orm import Session
 
 from database import SessionLocal
-from database_models import User,Branch
+from database_models import User, Branch
 
 from schemas.user import (
     UserRegister,
@@ -16,16 +583,12 @@ from schemas.user import (
 )
 
 from utils.password import hash_password, verify_password
-
 from utils.jwt import create_access_token, decode_access_token
 
 
 router = APIRouter(
     prefix="/auth"
 )
-
-
-security = HTTPBearer()
 
 
 # ==========================================
@@ -39,6 +602,21 @@ def get_db():
         yield db
     finally:
         db.close()
+
+
+# ==========================================
+# COOKIE SETTINGS
+# ==========================================
+
+COOKIE_NAME = "access_token"
+
+# For production HTTPS:
+COOKIE_SECURE = True
+
+# "lax" works well when frontend/backend are same-site.
+# If your frontend and backend are on completely different sites,
+# you may need "none" together with Secure=True.
+COOKIE_SAMESITE = "lax"
 
 
 # ==========================================
@@ -127,6 +705,7 @@ def register(
 )
 def login(
     user: UserLogin,
+    response: Response,
     db: Session = Depends(get_db)
 ):
 
@@ -190,9 +769,27 @@ def login(
         role=db_user.role
     )
 
+    # ==========================================
+    # SET HTTPONLY COOKIE
+    # ==========================================
+
+    response.set_cookie(
+        key=COOKIE_NAME,
+        value=token,
+        httponly=True,
+        secure=COOKIE_SECURE,
+        samesite=COOKIE_SAMESITE,
+        max_age=60 * 60 * 24,
+        path="/"
+    )
+
+    # ==========================================
+    # RESPONSE
+    # ==========================================
+
     return {
-        "access_token": token,
-        "token_type": "bearer"
+        "message": "Login successful",
+        "role": db_user.role
     }
 
 
@@ -206,6 +803,7 @@ def login(
 )
 def admin_login(
     user: UserLogin,
+    response: Response,
     db: Session = Depends(get_db)
 ):
 
@@ -269,9 +867,27 @@ def admin_login(
         role=db_user.role
     )
 
+    # ==========================================
+    # SET HTTPONLY COOKIE
+    # ==========================================
+
+    response.set_cookie(
+        key=COOKIE_NAME,
+        value=token,
+        httponly=True,
+        secure=COOKIE_SECURE,
+        samesite=COOKIE_SAMESITE,
+        max_age=60 * 60 * 24,
+        path="/"
+    )
+
+    # ==========================================
+    # RESPONSE
+    # ==========================================
+
     return {
-        "access_token": token,
-        "token_type": "bearer"
+        "message": "Super admin login successful",
+        "role": db_user.role
     }
 
 
@@ -280,15 +896,21 @@ def admin_login(
 # ==========================================
 
 def get_current_user(
-    credentials: HTTPAuthorizationCredentials = Depends(security),
+    request: Request,
     db: Session = Depends(get_db)
 ):
 
     # ==========================================
-    # GET TOKEN
+    # GET TOKEN FROM HTTPONLY COOKIE
     # ==========================================
 
-    token = credentials.credentials
+    token = request.cookies.get(COOKIE_NAME)
+
+    if not token:
+        raise HTTPException(
+            status_code=401,
+            detail="Authentication required"
+        )
 
     # ==========================================
     # DECODE JWT
@@ -318,9 +940,17 @@ def get_current_user(
     # FIND USER
     # ==========================================
 
+    try:
+        user_id = int(user_id)
+    except (TypeError, ValueError):
+        raise HTTPException(
+            status_code=401,
+            detail="Invalid token"
+        )
+
     db_user = (
         db.query(User)
-        .filter(User.id == int(user_id))
+        .filter(User.id == user_id)
         .first()
     )
 
@@ -389,14 +1019,14 @@ def read_current_user(
 #     db: Session = Depends(get_db),
 #     current_admin: User = Depends(get_current_super_admin)
 # ):
-
+#
 #     users = (
 #         db.query(User)
 #         .filter(User.role != "super_admin")
 #         .order_by(User.id.asc())
 #         .all()
 #     )
-
+#
 #     return users
 
 
@@ -450,9 +1080,6 @@ def change_admin_password(
     }
 
 
-
-
-
 # ==========================================
 # BRANCH ADMIN LOGIN
 # ==========================================
@@ -463,6 +1090,7 @@ def change_admin_password(
 )
 def branch_admin_login(
     login_data: BranchAdminLogin,
+    response: Response,
     db: Session = Depends(get_db)
 ):
 
@@ -546,14 +1174,50 @@ def branch_admin_login(
     )
 
     # ==========================================
+    # SET HTTPONLY COOKIE
+    # ==========================================
+
+    response.set_cookie(
+        key=COOKIE_NAME,
+        value=token,
+        httponly=True,
+        secure=COOKIE_SECURE,
+        samesite=COOKIE_SAMESITE,
+        max_age=60 * 60 * 24,
+        path="/"
+    )
+
+    # ==========================================
     # RESPONSE
     # ==========================================
 
     return {
-        "access_token": token,
-        "token_type": "bearer",
+        "message": "Branch admin login successful",
         "role": db_user.role,
         "branch_admin_id": db_user.branch_admin_id,
         "branch_id": db_user.branch_id,
         "name": db_user.name
+    }
+
+
+# ==========================================
+# LOGOUT
+# ==========================================
+
+@router.post(
+    "/logout",
+    tags=["Authentication-logout api for common user,branch admin and super admin"]
+)
+def logout(response: Response):
+
+    response.delete_cookie(
+        key=COOKIE_NAME,
+        httponly=True,
+        secure=COOKIE_SECURE,
+        samesite=COOKIE_SAMESITE,
+        path="/"
+    )
+
+    return {
+        "message": "Logout successful"
     }

@@ -99,7 +99,7 @@ class User(Base):
         nullable=False
     )
 
-    status = Column( 
+    status = Column(
         String,
         default="Active",
         nullable=False
@@ -108,12 +108,13 @@ class User(Base):
     created_at = Column(
         DateTime(timezone=True),
         server_default=func.now()
-                )
+    )
 
 
 # ==========================================
 # BRANCH
 # ==========================================
+
 class Branch(Base):
     __tablename__ = "branches"
 
@@ -153,6 +154,8 @@ class Branch(Base):
         DateTime(timezone=True),
         server_default=func.now()
     )
+
+
 # ==========================================
 # COURSE
 # ==========================================
@@ -212,6 +215,7 @@ class Course(Base):
         nullable=True
     )
 
+    # Keep this field
     is_active = Column(
         Boolean,
         default=True
@@ -334,88 +338,6 @@ class SystemSettings(Base):
 
 
 # ==========================================
-# ENROLLMENT
-# ==========================================
-
-class Enrollment(Base):
-    __tablename__ = "enrollments"
-
-    id = Column(
-        Integer,
-        primary_key=True,
-        index=True
-    )
-
-    user_id = Column(
-        Integer,
-        ForeignKey("users.id"),
-        nullable=False
-    )
-
-    course_id = Column(
-        Integer,
-        ForeignKey("courses.id"),
-        nullable=False
-    )
-
-    full_name = Column(
-        String,
-        nullable=False
-    )
-
-    email = Column(
-        String,
-        nullable=False
-    )
-
-    phone = Column(
-        String,
-        nullable=False
-    )
-
-    parent_name = Column(
-        String,
-        nullable=False
-    )
-
-    parent_phone = Column(
-        String,
-        nullable=False
-    )
-
-    highest_qualification = Column(
-        String,
-        nullable=False
-    )
-
-    address = Column(
-        String,
-        nullable=False
-    )
-
-    payment_plan = Column(
-        String,
-        nullable=False
-    )
-
-    total_fee = Column(
-        Float,
-        nullable=False
-    )
-
-    status = Column(
-        String,
-        default="pending",
-        nullable=False
-    )
-
-    enrolled_at = Column(
-        DateTime(timezone=True),
-        server_default=func.now()
-    )
-
-
-# ==========================================
 # ANNOUNCEMENT
 # ==========================================
 
@@ -427,11 +349,11 @@ class Announcement(Base):
         primary_key=True,
         index=True
     )
-    
+
     branch_id = Column(
         Integer,
         ForeignKey("branches.id"),
-        nullable=False
+        nullable=True
     )
 
     title = Column(
@@ -448,6 +370,132 @@ class Announcement(Base):
         String,
         nullable=True
     )
+
+    created_at = Column(
+        DateTime(timezone=True),
+        server_default=func.now()
+    )
+
+
+# ==========================================
+# ENROLLMENT
+# ==========================================
+
+class Enrollment(Base):
+    __tablename__ = "enrollments"
+
+    id = Column(
+        Integer,
+        primary_key=True,
+        index=True
+    )
+
+    # ==========================================
+    # USER
+    # ==========================================
+
+    user_id = Column(
+        Integer,
+        ForeignKey("users.id"),
+        nullable=False
+    )
+
+    # ==========================================
+    # COURSE
+    # ==========================================
+
+    course_id = Column(
+        Integer,
+        ForeignKey("courses.id"),
+        nullable=False
+    )
+
+    # ==========================================
+    # BRANCH
+    # ==========================================
+
+    branch_id = Column(
+        Integer,
+        ForeignKey("branches.id"),
+        nullable=False
+    )
+
+    # ==========================================
+    # STUDENT DETAILS
+    # ==========================================
+
+    name = Column(
+        String,
+        nullable=True
+    )
+
+    email = Column(
+        String,
+        nullable=True
+    )
+
+    phone = Column(
+        String,
+        nullable=True
+    )
+
+    parent_name = Column(
+        String,
+        nullable=True
+    )
+
+    parent_phone = Column(
+        String,
+        nullable=True
+    )
+
+    highest_qualification = Column(
+        String,
+        nullable=True
+    )
+
+    address = Column(
+        String,
+        nullable=True
+    )
+
+    # ==========================================
+    # COURSE FEE
+    # ==========================================
+
+    total_fee = Column(
+        Float,
+        nullable=False
+    )
+
+    # ==========================================
+    # PAYMENT STATUS
+    # pending / paid
+    # ==========================================
+
+    status = Column(
+        String,
+        default="pending",
+        nullable=False
+    )
+
+    # ==========================================
+    # RAZORPAY
+    # ==========================================
+
+    razorpay_order_id = Column(
+        String,
+        nullable=True
+    )
+
+    razorpay_payment_id = Column(
+        String,
+        nullable=True
+    )
+
+    # ==========================================
+    # CREATED DATE
+    # ==========================================
 
     created_at = Column(
         DateTime(timezone=True),

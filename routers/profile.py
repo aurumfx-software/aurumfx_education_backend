@@ -46,7 +46,7 @@ def get_db():
 
 @router.get(
     "/",
-    tags=["User"]
+    tags=["Student Profile"]
 )
 def get_user_profile(
     db: Session = Depends(get_db),
@@ -83,7 +83,7 @@ def get_user_profile(
 
 @router.put(
     "/",
-    tags=["User"]
+    tags=["Student Profile"]
 )
 async def update_user_profile(
     name: str = Form(...),
