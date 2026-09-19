@@ -1,6 +1,10 @@
+
+
+
+
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
-
+from sqlalchemy import func, and_
 from database import SessionLocal
 from database_models import Enrollment, Course, User
 
@@ -112,6 +116,10 @@ def create_enrollment(
     new_enrollment = Enrollment(
         user_id=current_user.id,
         course_id=course.id,
+
+        # Store course title in enrollment
+        course_title=course.title,
+
         branch_id=course.branch_id,
 
         # Student details
@@ -156,7 +164,9 @@ def create_enrollment(
         "highest_qualification": new_enrollment.highest_qualification,
         "address": new_enrollment.address,
 
-        "course_title": course.title,
+        # Stored course title
+        "course_title": new_enrollment.course_title,
+
         "course_image": course.image,
         "course_duration": course.duration,
 
@@ -235,13 +245,12 @@ def get_my_enrollments(
             "parent_name": enrollment.parent_name,
             "parent_phone": enrollment.parent_phone,
 
-            "highest_qualification": (
-                enrollment.highest_qualification
-            ),
-
+            "highest_qualification": enrollment.highest_qualification,
             "address": enrollment.address,
 
-            "course_title": course.title,
+            # Stored course title
+            "course_title": enrollment.course_title,
+
             "course_image": course.image,
             "course_duration": course.duration,
 
@@ -338,13 +347,12 @@ def get_branch_admin_enrollments(
             "parent_name": enrollment.parent_name,
             "parent_phone": enrollment.parent_phone,
 
-            "highest_qualification": (
-                enrollment.highest_qualification
-            ),
-
+            "highest_qualification": enrollment.highest_qualification,
             "address": enrollment.address,
 
-            "course_title": course.title,
+            # Stored course title
+            "course_title": enrollment.course_title,
+
             "course_image": course.image,
             "course_duration": course.duration,
 
@@ -359,7 +367,6 @@ def get_branch_admin_enrollments(
 
         for enrollment, student, course in results
     ]
-
 
 
 # ==========================================
@@ -399,7 +406,8 @@ def get_branch_admin_course_enrollments(
         )
 
     # ==========================================
-    # CHECK COURSE EXISTS AND BELONGS TO ADMIN'S BRANCH
+    # CHECK COURSE EXISTS AND BELONGS
+    # TO ADMIN'S BRANCH
     # ==========================================
 
     course = (
@@ -463,29 +471,110 @@ def get_branch_admin_course_enrollments(
             "parent_name": enrollment.parent_name,
             "parent_phone": enrollment.parent_phone,
 
-            "highest_qualification": (
-                enrollment.highest_qualification
-            ),
-
+            "highest_qualification": enrollment.highest_qualification,
             "address": enrollment.address,
 
-            "course_title": course.title,
+            # Stored course title
+            "course_title": enrollment.course_title,
+
             "course_image": course.image,
             "course_duration": course.duration,
 
             "total_fee": enrollment.total_fee,
             "status": enrollment.status,
 
-            "razorpay_order_id": (
-                enrollment.razorpay_order_id
-            ),
-
-            "razorpay_payment_id": (
-                enrollment.razorpay_payment_id
-            ),
+            "razorpay_order_id": enrollment.razorpay_order_id,
+            "razorpay_payment_id": enrollment.razorpay_payment_id,
 
             "created_at": enrollment.created_at
         }
 
         for enrollment, student, course in results
+    ]
+
+
+
+
+
+
+# ==========================================
+# GET BRANCH COURSE PURCHASE SUMMARY
+# BRANCH ADMIN ONLY
+# ==========================================
+
+@router.get(
+    "/branch-admin/course-summary",
+    tags=["Branch Admin Enrollments"]
+)
+def get_branch_admin_course_summary(
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+
+    # ==========================================
+    # CHECK BRANCH ADMIN ROLE
+    # ==========================================
+
+    if current_user.role != "branch_admin":
+        raise HTTPException(
+            status_code=403,
+            detail="Branch admin access required"
+        )
+
+    # ==========================================
+    # CHECK BRANCH ASSIGNMENT
+    # ==========================================
+
+    if not current_user.branch_id:
+        raise HTTPException(
+            status_code=400,
+            detail="Branch admin is not assigned to a branch"
+        )
+
+    # ==========================================
+    # GET COURSES WITH PURCHASE COUNT
+    # ==========================================
+
+    results = (
+        db.query(
+            Course.id.label("course_id"),
+            Course.title.label("course_title"),
+            Course.image.label("course_image"),
+            func.count(
+                Enrollment.id
+            ).label("purchase_count")
+        )
+        .outerjoin(
+            Enrollment,
+            and_(
+                Enrollment.course_id == Course.id,
+                Enrollment.status == "paid"
+            )
+        )
+        .filter(
+            Course.branch_id == current_user.branch_id
+        )
+        .group_by(
+            Course.id,
+            Course.title,
+            Course.image
+        )
+        .order_by(
+            Course.id.asc()
+        )
+        .all()
+    )
+
+    # ==========================================
+    # RETURN COURSE SUMMARY
+    # ==========================================
+
+    return [
+        {
+            "course_id": row.course_id,
+            "course_title": row.course_title,
+            "course_image": row.course_image,
+            "purchase_count": row.purchase_count
+        }
+        for row in results
     ]

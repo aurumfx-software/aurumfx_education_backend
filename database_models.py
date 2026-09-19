@@ -410,6 +410,12 @@ class Enrollment(Base):
         nullable=False
     )
 
+    # Course title snapshot
+    course_title = Column(
+        String,
+        nullable=True
+    )
+
     # ==========================================
     # BRANCH
     # ==========================================

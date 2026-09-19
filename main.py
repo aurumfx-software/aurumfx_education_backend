@@ -172,3 +172,4 @@ def greet():
         "status": "success",
         "message": "AurumFX server is running"
     }
+    
