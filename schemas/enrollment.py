@@ -3,14 +3,6 @@ from pydantic import BaseModel
 
 
 # ==========================================
-# CREATE ENROLLMENT
-# ==========================================
-
-class EnrollmentCreate(BaseModel):
-    course_id: int
-
-
-# ==========================================
 # STUDENT ENROLLMENT RESPONSE
 # ==========================================
 
@@ -24,11 +16,11 @@ class EnrollmentResponse(BaseModel):
     email: str
     phone: str
 
-    parent_name: str
-    parent_phone: str
+    parent_name: str | None = None
+    parent_phone: str | None = None
 
-    highest_qualification: str
-    address: str
+    highest_qualification: str | None = None
+    address: str | None = None
 
     course_title: str
     course_image: str | None = None
@@ -60,11 +52,11 @@ class AdminEnrollmentResponse(BaseModel):
     email: str
     phone: str
 
-    parent_name: str
-    parent_phone: str
+    parent_name: str | None = None
+    parent_phone: str | None = None
 
-    highest_qualification: str
-    address: str
+    highest_qualification: str | None = None
+    address: str | None = None
 
     course_title: str
     course_image: str | None = None

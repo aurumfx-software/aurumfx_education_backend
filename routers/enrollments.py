@@ -1,15 +1,11 @@
-
-
-
-
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 from sqlalchemy import func, and_
+
 from database import SessionLocal
 from database_models import Enrollment, Course, User
 
 from schemas.enrollment import (
-    EnrollmentCreate,
     EnrollmentResponse,
     AdminEnrollmentResponse
 )
@@ -33,151 +29,6 @@ def get_db():
         yield db
     finally:
         db.close()
-
-
-# ==========================================
-# CREATE ENROLLMENT
-# STUDENT ONLY
-# ==========================================
-
-@router.post(
-    "/",
-    response_model=EnrollmentResponse,
-    tags=["Student Enrollments"]
-)
-def create_enrollment(
-    enrollment_data: EnrollmentCreate,
-    db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user)
-):
-
-    # ==========================================
-    # CHECK USER ROLE
-    # ==========================================
-
-    if current_user.role != "user":
-        raise HTTPException(
-            status_code=403,
-            detail="Only students can create enrollments"
-        )
-
-    # ==========================================
-    # FIND ACTIVE COURSE
-    # ==========================================
-
-    course = (
-        db.query(Course)
-        .filter(
-            Course.id == enrollment_data.course_id,
-            Course.is_active == True
-        )
-        .first()
-    )
-
-    if not course:
-        raise HTTPException(
-            status_code=404,
-            detail="Course not found"
-        )
-
-    # ==========================================
-    # CHECK COURSE BRANCH
-    # ==========================================
-
-    if not course.branch_id:
-        raise HTTPException(
-            status_code=400,
-            detail="Course is not assigned to a branch"
-        )
-
-    # ==========================================
-    # CHECK IF ALREADY ENROLLED
-    # ==========================================
-
-    existing_enrollment = (
-        db.query(Enrollment)
-        .filter(
-            Enrollment.user_id == current_user.id,
-            Enrollment.course_id == course.id
-        )
-        .first()
-    )
-
-    if existing_enrollment:
-        raise HTTPException(
-            status_code=400,
-            detail="You are already enrolled in this course"
-        )
-
-    # ==========================================
-    # CREATE ENROLLMENT
-    # ==========================================
-
-    new_enrollment = Enrollment(
-        user_id=current_user.id,
-        course_id=course.id,
-
-        # Store course title in enrollment
-        course_title=course.title,
-
-        branch_id=course.branch_id,
-
-        # Student details
-        name=current_user.name,
-        email=current_user.email,
-        phone=current_user.phone,
-        parent_name=current_user.parent_name,
-        parent_phone=current_user.parent_phone,
-        highest_qualification=current_user.highest_qualification,
-        address=current_user.address,
-
-        # Course fee
-        total_fee=course.price,
-
-        # Payment status
-        status="pending"
-    )
-
-    db.add(new_enrollment)
-
-    db.commit()
-
-    db.refresh(new_enrollment)
-
-    # ==========================================
-    # RETURN ENROLLMENT DETAILS
-    # ==========================================
-
-    return {
-        "id": new_enrollment.id,
-        "user_id": new_enrollment.user_id,
-        "course_id": new_enrollment.course_id,
-        "branch_id": new_enrollment.branch_id,
-
-        "name": new_enrollment.name,
-        "email": new_enrollment.email,
-        "phone": new_enrollment.phone,
-
-        "parent_name": new_enrollment.parent_name,
-        "parent_phone": new_enrollment.parent_phone,
-
-        "highest_qualification": new_enrollment.highest_qualification,
-        "address": new_enrollment.address,
-
-        # Stored course title
-        "course_title": new_enrollment.course_title,
-
-        "course_image": course.image,
-        "course_duration": course.duration,
-
-        "total_fee": new_enrollment.total_fee,
-        "status": new_enrollment.status,
-
-        "razorpay_order_id": new_enrollment.razorpay_order_id,
-        "razorpay_payment_id": new_enrollment.razorpay_payment_id,
-
-        "created_at": new_enrollment.created_at
-    }
 
 
 # ==========================================
@@ -493,10 +344,6 @@ def get_branch_admin_course_enrollments(
     ]
 
 
-
-
-
-
 # ==========================================
 # GET BRANCH COURSE PURCHASE SUMMARY
 # BRANCH ADMIN ONLY
@@ -576,5 +423,6 @@ def get_branch_admin_course_summary(
             "course_image": row.course_image,
             "purchase_count": row.purchase_count
         }
+
         for row in results
     ]

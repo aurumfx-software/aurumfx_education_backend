@@ -9,8 +9,13 @@ from sqlalchemy.orm import Session
 
 from database import SessionLocal
 from database_models import Enrollment, Course, User
+
 from routers.auth import get_current_user
 
+
+# ============================================================
+# ROUTER
+# ============================================================
 
 router = APIRouter(
     prefix="/payments",
@@ -18,9 +23,9 @@ router = APIRouter(
 )
 
 
-# ==========================================
+# ============================================================
 # RAZORPAY CONFIGURATION
-# ==========================================
+# ============================================================
 
 RAZORPAY_KEY_ID = os.getenv("RAZORPAY_KEY_ID")
 RAZORPAY_KEY_SECRET = os.getenv("RAZORPAY_KEY_SECRET")
@@ -28,9 +33,9 @@ RAZORPAY_KEY_SECRET = os.getenv("RAZORPAY_KEY_SECRET")
 RAZORPAY_API_URL = "https://api.razorpay.com/v1"
 
 
-# ==========================================
+# ============================================================
 # DATABASE DEPENDENCY
-# ==========================================
+# ============================================================
 
 def get_db():
     db = SessionLocal()
@@ -41,12 +46,12 @@ def get_db():
         db.close()
 
 
-# ==========================================
+# ============================================================
 # REQUEST SCHEMAS
-# ==========================================
+# ============================================================
 
 class CreateOrderRequest(BaseModel):
-    enrollment_id: int
+    course_id: int
 
 
 class VerifyPaymentRequest(BaseModel):
@@ -56,9 +61,9 @@ class VerifyPaymentRequest(BaseModel):
     razorpay_signature: str
 
 
-# ==========================================
+# ============================================================
 # CHECK RAZORPAY CONFIGURATION
-# ==========================================
+# ============================================================
 
 def check_razorpay_config():
 
@@ -75,20 +80,22 @@ def check_razorpay_config():
         )
 
 
-# ==========================================
-# CREATE RAZORPAY ORDER
-# ==========================================
+# ============================================================
+# CREATE ENROLLMENT + RAZORPAY ORDER
+# ============================================================
 
-@router.post("/create-order")
+@router.post(
+    "/create-order"
+)
 def create_order(
     payment_data: CreateOrderRequest,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user)
 ):
 
-    # ==========================================
+    # ========================================================
     # ONLY STUDENTS
-    # ==========================================
+    # ========================================================
 
     if current_user.role != "user":
         raise HTTPException(
@@ -96,49 +103,21 @@ def create_order(
             detail="Only students can make payments"
         )
 
-    # ==========================================
+    # ========================================================
     # CHECK RAZORPAY CONFIGURATION
-    # ==========================================
+    # ========================================================
 
     check_razorpay_config()
 
-    # ==========================================
-    # FIND ENROLLMENT
-    # ==========================================
-
-    enrollment = (
-        db.query(Enrollment)
-        .filter(
-            Enrollment.id == payment_data.enrollment_id,
-            Enrollment.user_id == current_user.id
-        )
-        .first()
-    )
-
-    if not enrollment:
-        raise HTTPException(
-            status_code=404,
-            detail="Enrollment not found"
-        )
-
-    # ==========================================
-    # CHECK PAYMENT STATUS
-    # ==========================================
-
-    if enrollment.status == "paid":
-        raise HTTPException(
-            status_code=400,
-            detail="This course has already been paid for"
-        )
-
-    # ==========================================
-    # FIND COURSE
-    # ==========================================
+    # ========================================================
+    # FIND ACTIVE COURSE
+    # ========================================================
 
     course = (
         db.query(Course)
         .filter(
-            Course.id == enrollment.course_id
+            Course.id == payment_data.course_id,
+            Course.is_active == True
         )
         .first()
     )
@@ -149,24 +128,110 @@ def create_order(
             detail="Course not found"
         )
 
-    # ==========================================
+    # ========================================================
+    # CHECK COURSE BRANCH
+    # ========================================================
+
+    if not course.branch_id:
+        raise HTTPException(
+            status_code=400,
+            detail="Course is not assigned to a branch"
+        )
+
+    # ========================================================
+    # CHECK EXISTING ENROLLMENT
+    # ========================================================
+
+    existing_enrollment = (
+        db.query(Enrollment)
+        .filter(
+            Enrollment.user_id == current_user.id,
+            Enrollment.course_id == course.id
+        )
+        .first()
+    )
+
+    # ========================================================
+    # ALREADY PAID
+    # ========================================================
+
+    if existing_enrollment:
+
+        if existing_enrollment.status == "paid":
+            raise HTTPException(
+                status_code=400,
+                detail="You are already enrolled in this course"
+            )
+
+        # If a pending enrollment already exists,
+        # reuse that enrollment instead of creating another one.
+
+        enrollment = existing_enrollment
+
+    else:
+
+        # ====================================================
+        # CREATE NEW PENDING ENROLLMENT
+        # ====================================================
+
+        enrollment = Enrollment(
+            user_id=current_user.id,
+            course_id=course.id,
+
+            # Store course snapshot
+            course_title=course.title,
+
+            branch_id=course.branch_id,
+
+            # Student details
+            name=current_user.name,
+            email=current_user.email,
+            phone=current_user.phone,
+            parent_name=current_user.parent_name,
+            parent_phone=current_user.parent_phone,
+            highest_qualification=current_user.highest_qualification,
+            address=current_user.address,
+
+            # Course fee
+            total_fee=course.price,
+
+            # Payment status
+            status="pending",
+
+            razorpay_order_id=None,
+            razorpay_payment_id=None
+        )
+
+        db.add(enrollment)
+
+    # ========================================================
+    # FLUSH
+    #
+    # This gives us enrollment.id before committing.
+    # ========================================================
+
+    db.flush()
+
+    # ========================================================
     # AMOUNT
-    # Razorpay expects paise
-    # ==========================================
+    # Razorpay expects amount in paise
+    # ========================================================
 
     amount_paise = int(
         round(enrollment.total_fee * 100)
     )
 
     if amount_paise <= 0:
+        db.rollback()
+
         raise HTTPException(
             status_code=400,
             detail="Invalid payment amount"
         )
 
-    # ==========================================
+    # ========================================================
     # CREATE RAZORPAY ORDER
-    # ==========================================
+    # ========================================================
 
     payload = {
         "amount": amount_paise,
@@ -194,16 +259,20 @@ def create_order(
 
     except requests.RequestException as e:
 
+        db.rollback()
+
         raise HTTPException(
             status_code=502,
             detail=f"Unable to connect to Razorpay: {str(e)}"
         )
 
-    # ==========================================
+    # ========================================================
     # CHECK RAZORPAY RESPONSE
-    # ==========================================
+    # ========================================================
 
     if not razorpay_response.ok:
+
+        db.rollback()
 
         try:
             error_data = razorpay_response.json()
@@ -226,30 +295,37 @@ def create_order(
 
     if not razorpay_order_id:
 
+        db.rollback()
+
         raise HTTPException(
             status_code=502,
             detail="Razorpay did not return an order ID"
         )
 
-    # ==========================================
-    # SAVE ORDER ID
-    # ==========================================
+    # ========================================================
+    # SAVE RAZORPAY ORDER ID
+    # ========================================================
 
     enrollment.razorpay_order_id = razorpay_order_id
     enrollment.status = "pending"
 
+    # ========================================================
+    # COMMIT ENROLLMENT
+    # ========================================================
+
     db.commit()
     db.refresh(enrollment)
 
-    # ==========================================
+    # ========================================================
     # RETURN ORDER DETAILS
-    # ==========================================
+    # ========================================================
 
     return {
         "success": True,
-        "message": "Razorpay order created successfully",
+        "message": "Enrollment and Razorpay order created successfully",
 
         "enrollment_id": enrollment.id,
+         "status": enrollment.status,
 
         "order_id": razorpay_order_id,
 
@@ -275,20 +351,22 @@ def create_order(
     }
 
 
-# ==========================================
+# ============================================================
 # VERIFY RAZORPAY PAYMENT
-# ==========================================
+# ============================================================
 
-@router.post("/verify")
+@router.post(
+    "/verify"
+)
 def verify_payment(
     payment_data: VerifyPaymentRequest,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user)
 ):
 
-    # ==========================================
+    # ========================================================
     # ONLY STUDENTS
-    # ==========================================
+    # ========================================================
 
     if current_user.role != "user":
         raise HTTPException(
@@ -296,15 +374,15 @@ def verify_payment(
             detail="Only students can verify payments"
         )
 
-    # ==========================================
+    # ========================================================
     # CHECK RAZORPAY CONFIGURATION
-    # ==========================================
+    # ========================================================
 
     check_razorpay_config()
 
-    # ==========================================
+    # ========================================================
     # FIND ENROLLMENT
-    # ==========================================
+    # ========================================================
 
     enrollment = (
         db.query(Enrollment)
@@ -321,42 +399,45 @@ def verify_payment(
             detail="Enrollment not found"
         )
 
-    # ==========================================
+    # ========================================================
     # ALREADY PAID
-    # ==========================================
+    # ========================================================
 
     if enrollment.status == "paid":
 
         return {
             "success": True,
             "message": "Payment already verified",
-            "status": "paid"
+            "status": "paid",
+            "enrollment_id": enrollment.id
         }
 
-    # ==========================================
-    # VERIFY ORDER ID
-    # ==========================================
+    # ========================================================
+    # CHECK ENROLLMENT ORDER ID
+    # ========================================================
 
     if not enrollment.razorpay_order_id:
-
         raise HTTPException(
             status_code=400,
             detail="No Razorpay order found for this enrollment"
         )
 
+    # ========================================================
+    # VERIFY ORDER ID
+    # ========================================================
+
     if (
         enrollment.razorpay_order_id
         != payment_data.razorpay_order_id
     ):
-
         raise HTTPException(
             status_code=400,
             detail="Razorpay order ID does not match"
         )
 
-    # ==========================================
+    # ========================================================
     # CREATE SIGNATURE
-    # ==========================================
+    # ========================================================
 
     generated_signature = hmac.new(
         RAZORPAY_KEY_SECRET.encode("utf-8"),
@@ -370,9 +451,9 @@ def verify_payment(
         hashlib.sha256
     ).hexdigest()
 
-    # ==========================================
+    # ========================================================
     # VERIFY SIGNATURE
-    # ==========================================
+    # ========================================================
 
     if not hmac.compare_digest(
         generated_signature,
@@ -384,9 +465,9 @@ def verify_payment(
             detail="Invalid Razorpay payment signature"
         )
 
-    # ==========================================
+    # ========================================================
     # PAYMENT VERIFIED
-    # ==========================================
+    # ========================================================
 
     enrollment.razorpay_payment_id = (
         payment_data.razorpay_payment_id
@@ -394,18 +475,26 @@ def verify_payment(
 
     enrollment.status = "paid"
 
+    # ========================================================
+    # SAVE
+    # ========================================================
+
     db.commit()
     db.refresh(enrollment)
 
-    # ==========================================
+    # ========================================================
     # SUCCESS
-    # ==========================================
+    # ========================================================
 
     return {
         "success": True,
         "message": "Payment verified successfully",
+
         "enrollment_id": enrollment.id,
+
         "status": enrollment.status,
+
         "razorpay_order_id": enrollment.razorpay_order_id,
+
         "razorpay_payment_id": enrollment.razorpay_payment_id
     }
