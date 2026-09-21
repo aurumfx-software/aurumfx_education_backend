@@ -105,94 +105,7 @@ def get_current_branch_admin(
     return current_user
 
 
-# ==========================================
-# GET ALL COURSES
-# PUBLIC
-# ==========================================
 
-@router.get(
-    "/",
-    response_model=list[CourseResponse],
-    tags=["Student Courses"]
-)
-def get_all_courses(
-    db: Session = Depends(get_db)
-):
-
-    courses = (
-        db.query(Course)
-        .filter(
-            Course.is_active == True
-        )
-        .all()
-    )
-
-    return courses
-
-
-# ==========================================
-# GET COURSES BY BRANCH
-# PUBLIC
-#
-# Example:
-# GET /courses/branch/1
-# ==========================================
-
-@router.get(
-    "/branch/{branch_id}",
-    response_model=list[CourseResponse],
-    tags=["Student Courses"]
-)
-def get_courses_by_branch(
-    branch_id: int,
-    db: Session = Depends(get_db)
-):
-    # ==========================================
-    # CHECK BRANCH
-    # ==========================================
-
-    branch = (
-        db.query(Branch)
-        .filter(
-            Branch.id == branch_id,
-            Branch.status == "Active"
-        )
-        .first()
-    )
-
-    if not branch:
-        raise HTTPException(
-            status_code=404,
-            detail="Branch not found"
-        )
-
-    # ==========================================
-    # GET ACTIVE COURSES OF THIS BRANCH
-    # ==========================================
-
-    courses = (
-        db.query(Course)
-        .filter(
-            Course.branch_id == branch_id,
-            Course.is_active == True
-        )
-        .order_by(
-            Course.created_at.desc()
-        )
-        .all()
-    )
-
-    # ==========================================
-    # NO COURSES AVAILABLE
-    # ==========================================
-
-    if not courses:
-        raise HTTPException(
-            status_code=404,
-            detail="No courses available in this branch"
-        )
-
-    return courses
 
 
 # ==========================================
@@ -670,3 +583,16 @@ def delete_course(
     return {
         "message": "Course deleted successfully"
     }
+
+
+
+
+
+
+
+
+
+
+
+
+
