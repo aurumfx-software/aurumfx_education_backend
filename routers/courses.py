@@ -141,7 +141,7 @@ def get_all_courses(
 @router.get(
     "/branch/{branch_id}",
     response_model=list[CourseResponse],
-    tags=["Courses"]
+    tags=["Student Courses"]
 )
 def get_courses_by_branch(
     branch_id: int,
