@@ -20,6 +20,10 @@ from routers.auth import get_current_super_admin
 from utils.password import hash_password
 
 
+# ============================================================
+# SUPER ADMIN ROUTER
+# ============================================================
+
 router = APIRouter(
     prefix="/super-admin/branches"
 )
@@ -36,6 +40,50 @@ def get_db():
         yield db
     finally:
         db.close()
+
+
+# ============================================================
+# PUBLIC BRANCHES ROUTER
+# ============================================================
+
+public_router = APIRouter(
+    prefix="/branches"
+)
+
+
+# ==========================================
+# GET PUBLIC ACTIVE BRANCHES
+# ==========================================
+
+@public_router.get(
+    "/public",
+    tags=["Public - Branches"]
+)
+def get_public_branches(
+    db: Session = Depends(get_db)
+):
+
+    branches = (
+        db.query(Branch)
+        .filter(
+            Branch.status == "Active"
+        )
+        .order_by(
+            Branch.id.asc()
+        )
+        .all()
+    )
+
+    return [
+        {
+            "id": branch.id,
+            "name": branch.name,
+            "location": branch.location,
+            "phone": branch.phone,
+            "email": branch.email
+        }
+        for branch in branches
+    ]
 
 
 # ==========================================
@@ -55,7 +103,9 @@ def create_branch(
 
     existing_branch = (
         db.query(Branch)
-        .filter(Branch.name == branch.name)
+        .filter(
+            Branch.name == branch.name
+        )
         .first()
     )
 
@@ -82,6 +132,7 @@ def create_branch(
 
 # ==========================================
 # GET ALL ACTIVE BRANCHES
+# SUPER ADMIN ONLY
 # ==========================================
 
 @router.get(
@@ -96,8 +147,12 @@ def get_branches(
 
     branches = (
         db.query(Branch)
-        .filter(Branch.status == "Active")
-        .order_by(Branch.id.asc())
+        .filter(
+            Branch.status == "Active"
+        )
+        .order_by(
+            Branch.id.asc()
+        )
         .all()
     )
 
@@ -107,6 +162,7 @@ def get_branches(
 # ============================================================
 # CREATE BRANCH ADMIN
 # ============================================================
+
 @router.post(
     "/admins",
     response_model=BranchAdminResponse,
@@ -120,7 +176,9 @@ def create_branch_admin(
 
     branch = (
         db.query(Branch)
-        .filter(Branch.id == admin.branch_id)
+        .filter(
+            Branch.id == admin.branch_id
+        )
         .first()
     )
 
@@ -162,7 +220,9 @@ def create_branch_admin(
 
     existing_email = (
         db.query(User)
-        .filter(User.email == admin.email)
+        .filter(
+            User.email == admin.email
+        )
         .first()
     )
 
@@ -180,7 +240,9 @@ def create_branch_admin(
         f"BA-{uuid.uuid4().hex[:8].upper()}"
     )
 
-    hashed_password = hash_password(admin.password)
+    hashed_password = hash_password(
+        admin.password
+    )
 
     new_admin = User(
         name=admin.name,
@@ -220,7 +282,9 @@ def get_branch_admins(
             User.role == "branch_admin",
             User.status == "Active"
         )
-        .order_by(User.id.asc())
+        .order_by(
+            User.id.asc()
+        )
         .all()
     )
 
@@ -300,7 +364,9 @@ def update_branch_admin(
 
     branch = (
         db.query(Branch)
-        .filter(Branch.id == admin.branch_id)
+        .filter(
+            Branch.id == admin.branch_id
+        )
         .first()
     )
 
@@ -444,7 +510,9 @@ def update_branch(
 
     branch = (
         db.query(Branch)
-        .filter(Branch.id == branch_id)
+        .filter(
+            Branch.id == branch_id
+        )
         .first()
     )
 
@@ -495,7 +563,9 @@ def delete_branch(
 
     branch = (
         db.query(Branch)
-        .filter(Branch.id == branch_id)
+        .filter(
+            Branch.id == branch_id
+        )
         .first()
     )
 

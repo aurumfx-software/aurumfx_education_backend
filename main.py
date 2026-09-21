@@ -18,7 +18,7 @@ from routers import (
     profile,
     branches,
     branch_announcements,
-    payments
+    payments,
 )
 
 
@@ -155,7 +155,11 @@ app.include_router(announcements.router)
 
 app.include_router(profile.router)
 
+# Super Admin branch routes
 app.include_router(branches.router)
+
+# Public branch routes
+app.include_router(branches.public_router)
 
 app.include_router(branch_announcements.router)
 
@@ -172,4 +176,3 @@ def greet():
         "status": "success",
         "message": "AurumFX server is running"
     }
-    

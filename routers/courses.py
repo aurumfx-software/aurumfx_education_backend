@@ -26,6 +26,10 @@ from utils.spaces import (
 )
 
 
+# ============================================================
+# ROUTER
+# ============================================================
+
 router = APIRouter(
     prefix="/courses"
 )
@@ -109,7 +113,7 @@ def get_current_branch_admin(
 @router.get(
     "/",
     response_model=list[CourseResponse],
-    tags=["Courses"]
+    tags=["Student Courses"]
 )
 def get_all_courses(
     db: Session = Depends(get_db)
@@ -127,6 +131,71 @@ def get_all_courses(
 
 
 # ==========================================
+# GET COURSES BY BRANCH
+# PUBLIC
+#
+# Example:
+# GET /courses/branch/1
+# ==========================================
+
+@router.get(
+    "/branch/{branch_id}",
+    response_model=list[CourseResponse],
+    tags=["Courses"]
+)
+def get_courses_by_branch(
+    branch_id: int,
+    db: Session = Depends(get_db)
+):
+    # ==========================================
+    # CHECK BRANCH
+    # ==========================================
+
+    branch = (
+        db.query(Branch)
+        .filter(
+            Branch.id == branch_id,
+            Branch.status == "Active"
+        )
+        .first()
+    )
+
+    if not branch:
+        raise HTTPException(
+            status_code=404,
+            detail="Branch not found"
+        )
+
+    # ==========================================
+    # GET ACTIVE COURSES OF THIS BRANCH
+    # ==========================================
+
+    courses = (
+        db.query(Course)
+        .filter(
+            Course.branch_id == branch_id,
+            Course.is_active == True
+        )
+        .order_by(
+            Course.created_at.desc()
+        )
+        .all()
+    )
+
+    # ==========================================
+    # NO COURSES AVAILABLE
+    # ==========================================
+
+    if not courses:
+        raise HTTPException(
+            status_code=404,
+            detail="No courses available in this branch"
+        )
+
+    return courses
+
+
+# ==========================================
 # GET COURSE BY ID
 # PUBLIC
 # ==========================================
@@ -134,7 +203,7 @@ def get_all_courses(
 @router.get(
     "/{course_id}",
     response_model=CourseResponse,
-    tags=["Courses"]
+    tags=["Student Courses"]
 )
 def get_course(
     course_id: int,
@@ -239,7 +308,6 @@ def add_course(
 
     new_course = Course(
 
-        # IMPORTANT:
         # Automatically assign logged-in
         # branch admin's branch
         branch_id=branch_admin.branch_id,
