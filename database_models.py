@@ -486,6 +486,17 @@ class Enrollment(Base):
     )
 
     # ==========================================
+    # COURSE STATUS
+    # pending / approved
+    # ==========================================
+
+    course_status = Column(
+        String,
+        default="pending",
+        nullable=False
+    )
+
+    # ==========================================
     # RAZORPAY
     # ==========================================
 

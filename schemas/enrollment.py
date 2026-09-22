@@ -27,7 +27,12 @@ class EnrollmentResponse(BaseModel):
     course_duration: str
 
     total_fee: float
+
+    # Payment status
     status: str
+
+    # Branch approval status
+    course_status: str
 
     razorpay_order_id: str | None = None
     razorpay_payment_id: str | None = None
@@ -63,7 +68,12 @@ class AdminEnrollmentResponse(BaseModel):
     course_duration: str
 
     total_fee: float
+
+    # Payment status
     status: str
+
+    # Branch approval status
+    course_status: str
 
     razorpay_order_id: str | None = None
     razorpay_payment_id: str | None = None

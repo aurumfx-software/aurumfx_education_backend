@@ -163,8 +163,8 @@ def create_order(
                 detail="You are already enrolled in this course"
             )
 
-        # If a pending enrollment already exists,
-        # reuse that enrollment instead of creating another one.
+        # If pending enrollment already exists,
+        # reuse it instead of creating another enrollment.
 
         enrollment = existing_enrollment
 
@@ -198,6 +198,10 @@ def create_order(
             # Payment status
             status="pending",
 
+            # Branch approval status
+            course_status="pending",
+
+            # Razorpay
             razorpay_order_id=None,
             razorpay_payment_id=None
         )
@@ -214,6 +218,7 @@ def create_order(
 
     # ========================================================
     # AMOUNT
+    #
     # Razorpay expects amount in paise
     # ========================================================
 
@@ -222,6 +227,7 @@ def create_order(
     )
 
     if amount_paise <= 0:
+
         db.rollback()
 
         raise HTTPException(
@@ -307,13 +313,19 @@ def create_order(
     # ========================================================
 
     enrollment.razorpay_order_id = razorpay_order_id
+
+    # Payment is still pending until verification
     enrollment.status = "pending"
+
+    # Course approval is also pending
+    enrollment.course_status = "pending"
 
     # ========================================================
     # COMMIT ENROLLMENT
     # ========================================================
 
     db.commit()
+
     db.refresh(enrollment)
 
     # ========================================================
@@ -322,27 +334,39 @@ def create_order(
 
     return {
         "success": True,
-        "message": "Enrollment and Razorpay order created successfully",
+
+        "message": (
+            "Enrollment and Razorpay order "
+            "created successfully"
+        ),
 
         "enrollment_id": enrollment.id,
-         "status": enrollment.status,
 
+        # Payment status
+        "status": enrollment.status,
+
+        # Branch approval status
+        "course_status": enrollment.course_status,
+
+        # Razorpay order
         "order_id": razorpay_order_id,
 
+        # Amount
         "amount": enrollment.total_fee,
-
         "amount_paise": amount_paise,
-
         "currency": "INR",
 
+        # Razorpay public key
         "razorpay_key_id": RAZORPAY_KEY_ID,
 
+        # Course
         "course": {
             "id": course.id,
             "title": course.title,
             "image": course.image
         },
 
+        # Student
         "student": {
             "name": current_user.name,
             "email": current_user.email,
@@ -408,8 +432,16 @@ def verify_payment(
         return {
             "success": True,
             "message": "Payment already verified",
+
             "status": "paid",
-            "enrollment_id": enrollment.id
+
+            "course_status": enrollment.course_status,
+
+            "enrollment_id": enrollment.id,
+
+            "razorpay_order_id": enrollment.razorpay_order_id,
+
+            "razorpay_payment_id": enrollment.razorpay_payment_id
         }
 
     # ========================================================
@@ -417,6 +449,7 @@ def verify_payment(
     # ========================================================
 
     if not enrollment.razorpay_order_id:
+
         raise HTTPException(
             status_code=400,
             detail="No Razorpay order found for this enrollment"
@@ -430,6 +463,7 @@ def verify_payment(
         enrollment.razorpay_order_id
         != payment_data.razorpay_order_id
     ):
+
         raise HTTPException(
             status_code=400,
             detail="Razorpay order ID does not match"
@@ -473,13 +507,19 @@ def verify_payment(
         payment_data.razorpay_payment_id
     )
 
+    # Payment becomes paid
     enrollment.status = "paid"
+
+    # Course remains pending until
+    # branch admin approves it
+    enrollment.course_status = "pending"
 
     # ========================================================
     # SAVE
     # ========================================================
 
     db.commit()
+
     db.refresh(enrollment)
 
     # ========================================================
@@ -488,11 +528,16 @@ def verify_payment(
 
     return {
         "success": True,
+
         "message": "Payment verified successfully",
 
         "enrollment_id": enrollment.id,
 
+        # Payment status
         "status": enrollment.status,
+
+        # Branch approval status
+        "course_status": enrollment.course_status,
 
         "razorpay_order_id": enrollment.razorpay_order_id,
 

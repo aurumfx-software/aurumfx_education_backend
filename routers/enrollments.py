@@ -31,10 +31,10 @@ def get_db():
         db.close()
 
 
-# ==========================================
+# ============================================================
 # GET MY ENROLLMENTS
 # STUDENT ONLY
-# ==========================================
+# ============================================================
 
 @router.get(
     "/my",
@@ -46,19 +46,11 @@ def get_my_enrollments(
     current_user: User = Depends(get_current_user)
 ):
 
-    # ==========================================
-    # CHECK USER ROLE
-    # ==========================================
-
     if current_user.role != "user":
         raise HTTPException(
             status_code=403,
             detail="Only students can access their enrollments"
         )
-
-    # ==========================================
-    # GET USER ENROLLMENTS
-    # ==========================================
 
     results = (
         db.query(
@@ -78,10 +70,6 @@ def get_my_enrollments(
         .all()
     )
 
-    # ==========================================
-    # RETURN ENROLLMENTS
-    # ==========================================
-
     return [
         {
             "id": enrollment.id,
@@ -99,14 +87,17 @@ def get_my_enrollments(
             "highest_qualification": enrollment.highest_qualification,
             "address": enrollment.address,
 
-            # Stored course title
             "course_title": enrollment.course_title,
-
             "course_image": course.image,
             "course_duration": course.duration,
 
             "total_fee": enrollment.total_fee,
+
+            # Payment status
             "status": enrollment.status,
+
+            # Branch approval status
+            "course_status": enrollment.course_status,
 
             "razorpay_order_id": enrollment.razorpay_order_id,
             "razorpay_payment_id": enrollment.razorpay_payment_id,
@@ -118,10 +109,75 @@ def get_my_enrollments(
     ]
 
 
-# ==========================================
+# ============================================================
+# GET MY PURCHASED COURSES
+# STUDENT ONLY
+# ============================================================
+
+@router.get(
+    "/my-purchases",
+    tags=["Student Purchases"]
+)
+def get_my_purchases(
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+
+    if current_user.role != "user":
+        raise HTTPException(
+            status_code=403,
+            detail="Only students can access their purchases"
+        )
+
+    results = (
+        db.query(
+            Enrollment,
+            Course
+        )
+        .join(
+            Course,
+            Enrollment.course_id == Course.id
+        )
+        .filter(
+            Enrollment.user_id == current_user.id,
+            Enrollment.status == "paid"
+        )
+        .order_by(
+            Enrollment.created_at.desc()
+        )
+        .all()
+    )
+
+    return [
+        {
+            "enrollment_id": enrollment.id,
+
+            "course_id": enrollment.course_id,
+            "course_title": enrollment.course_title,
+            "course_image": course.image,
+            "course_duration": course.duration,
+
+            "amount": enrollment.total_fee,
+
+            # Payment status
+            "payment_status": enrollment.status,
+
+            # Branch approval status
+            "course_status": enrollment.course_status,
+
+            "razorpay_payment_id": enrollment.razorpay_payment_id,
+
+            "created_at": enrollment.created_at
+        }
+
+        for enrollment, course in results
+    ]
+
+
+# ============================================================
 # GET BRANCH ENROLLMENTS
 # BRANCH ADMIN ONLY
-# ==========================================
+# ============================================================
 
 @router.get(
     "/branch-admin/my-enrollments",
@@ -133,29 +189,17 @@ def get_branch_admin_enrollments(
     current_user: User = Depends(get_current_user)
 ):
 
-    # ==========================================
-    # CHECK BRANCH ADMIN ROLE
-    # ==========================================
-
     if current_user.role != "branch_admin":
         raise HTTPException(
             status_code=403,
             detail="Branch admin access required"
         )
 
-    # ==========================================
-    # CHECK BRANCH ASSIGNMENT
-    # ==========================================
-
     if not current_user.branch_id:
         raise HTTPException(
             status_code=400,
             detail="Branch admin is not assigned to a branch"
         )
-
-    # ==========================================
-    # GET ONLY THIS BRANCH'S ENROLLMENTS
-    # ==========================================
 
     results = (
         db.query(
@@ -180,10 +224,6 @@ def get_branch_admin_enrollments(
         .all()
     )
 
-    # ==========================================
-    # RETURN ENROLLMENT DETAILS
-    # ==========================================
-
     return [
         {
             "enrollment_id": enrollment.id,
@@ -201,14 +241,17 @@ def get_branch_admin_enrollments(
             "highest_qualification": enrollment.highest_qualification,
             "address": enrollment.address,
 
-            # Stored course title
             "course_title": enrollment.course_title,
-
             "course_image": course.image,
             "course_duration": course.duration,
 
             "total_fee": enrollment.total_fee,
+
+            # Payment status
             "status": enrollment.status,
+
+            # Course approval status
+            "course_status": enrollment.course_status,
 
             "razorpay_order_id": enrollment.razorpay_order_id,
             "razorpay_payment_id": enrollment.razorpay_payment_id,
@@ -220,10 +263,10 @@ def get_branch_admin_enrollments(
     ]
 
 
-# ==========================================
+# ============================================================
 # GET COURSE ENROLLMENTS
 # BRANCH ADMIN ONLY
-# ==========================================
+# ============================================================
 
 @router.get(
     "/branch-admin/course/{course_id}",
@@ -236,30 +279,17 @@ def get_branch_admin_course_enrollments(
     current_user: User = Depends(get_current_user)
 ):
 
-    # ==========================================
-    # CHECK BRANCH ADMIN ROLE
-    # ==========================================
-
     if current_user.role != "branch_admin":
         raise HTTPException(
             status_code=403,
             detail="Branch admin access required"
         )
 
-    # ==========================================
-    # CHECK BRANCH ASSIGNMENT
-    # ==========================================
-
     if not current_user.branch_id:
         raise HTTPException(
             status_code=400,
             detail="Branch admin is not assigned to a branch"
         )
-
-    # ==========================================
-    # CHECK COURSE EXISTS AND BELONGS
-    # TO ADMIN'S BRANCH
-    # ==========================================
 
     course = (
         db.query(Course)
@@ -275,10 +305,6 @@ def get_branch_admin_course_enrollments(
             status_code=404,
             detail="Course not found in your branch"
         )
-
-    # ==========================================
-    # GET ONLY THIS COURSE'S ENROLLMENTS
-    # ==========================================
 
     results = (
         db.query(
@@ -304,10 +330,6 @@ def get_branch_admin_course_enrollments(
         .all()
     )
 
-    # ==========================================
-    # RETURN ENROLLMENT DETAILS
-    # ==========================================
-
     return [
         {
             "enrollment_id": enrollment.id,
@@ -325,14 +347,17 @@ def get_branch_admin_course_enrollments(
             "highest_qualification": enrollment.highest_qualification,
             "address": enrollment.address,
 
-            # Stored course title
             "course_title": enrollment.course_title,
-
             "course_image": course.image,
             "course_duration": course.duration,
 
             "total_fee": enrollment.total_fee,
+
+            # Payment status
             "status": enrollment.status,
+
+            # Course approval status
+            "course_status": enrollment.course_status,
 
             "razorpay_order_id": enrollment.razorpay_order_id,
             "razorpay_payment_id": enrollment.razorpay_payment_id,
@@ -344,10 +369,10 @@ def get_branch_admin_course_enrollments(
     ]
 
 
-# ==========================================
+# ============================================================
 # GET BRANCH COURSE PURCHASE SUMMARY
 # BRANCH ADMIN ONLY
-# ==========================================
+# ============================================================
 
 @router.get(
     "/branch-admin/course-summary",
@@ -358,19 +383,11 @@ def get_branch_admin_course_summary(
     current_user: User = Depends(get_current_user)
 ):
 
-    # ==========================================
-    # CHECK BRANCH ADMIN ROLE
-    # ==========================================
-
     if current_user.role != "branch_admin":
         raise HTTPException(
             status_code=403,
             detail="Branch admin access required"
         )
-
-    # ==========================================
-    # CHECK BRANCH ASSIGNMENT
-    # ==========================================
 
     if not current_user.branch_id:
         raise HTTPException(
@@ -378,15 +395,12 @@ def get_branch_admin_course_summary(
             detail="Branch admin is not assigned to a branch"
         )
 
-    # ==========================================
-    # GET COURSES WITH PURCHASE COUNT
-    # ==========================================
-
     results = (
         db.query(
             Course.id.label("course_id"),
             Course.title.label("course_title"),
             Course.image.label("course_image"),
+
             func.count(
                 Enrollment.id
             ).label("purchase_count")
@@ -412,10 +426,6 @@ def get_branch_admin_course_summary(
         .all()
     )
 
-    # ==========================================
-    # RETURN COURSE SUMMARY
-    # ==========================================
-
     return [
         {
             "course_id": row.course_id,
@@ -426,3 +436,339 @@ def get_branch_admin_course_summary(
 
         for row in results
     ]
+
+
+
+# ============================================================
+# GET BRANCH ADMIN PURCHASES
+# BRANCH ADMIN ONLY
+# ============================================================
+
+@router.get(
+    "/branch-admin/purchases",
+    tags=["Branch Admin Purchases"]
+)
+def get_branch_admin_purchases(
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+
+    if current_user.role != "branch_admin":
+        raise HTTPException(
+            status_code=403,
+            detail="Branch admin access required"
+        )
+
+    if not current_user.branch_id:
+        raise HTTPException(
+            status_code=400,
+            detail="Branch admin is not assigned to a branch"
+        )
+
+    results = (
+        db.query(
+            Enrollment,
+            User,
+            Course
+        )
+        .join(
+            User,
+            Enrollment.user_id == User.id
+        )
+        .join(
+            Course,
+            Enrollment.course_id == Course.id
+        )
+        .filter(
+            Enrollment.branch_id == current_user.branch_id,
+            Enrollment.status == "paid"
+        )
+        .order_by(
+            Enrollment.created_at.desc()
+        )
+        .all()
+    )
+
+    return [
+        {
+            "enrollment_id": enrollment.id,
+            "user_id": enrollment.user_id,
+            "course_id": enrollment.course_id,
+
+            "name": student.name,
+            "email": student.email,
+            "phone": student.phone,
+
+            "course_title": enrollment.course_title,
+            "course_image": course.image,
+            "course_duration": course.duration,
+
+            "amount": enrollment.total_fee,
+
+            # Payment status
+            "payment_status": enrollment.status,
+
+            # Branch approval status
+            "course_status": enrollment.course_status,
+
+            "razorpay_order_id": enrollment.razorpay_order_id,
+            "razorpay_payment_id": enrollment.razorpay_payment_id,
+
+            "created_at": enrollment.created_at
+        }
+        for enrollment, student, course in results
+    ]
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+# ============================================================
+# GET PENDING PURCHASES
+# BRANCH ADMIN ONLY
+# ============================================================
+
+@router.get(
+    "/branch-admin/pending",
+    tags=["Branch Admin Purchases"]
+)
+def get_pending_purchases(
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+
+    if current_user.role != "branch_admin":
+        raise HTTPException(
+            status_code=403,
+            detail="Branch admin access required"
+        )
+
+    if not current_user.branch_id:
+        raise HTTPException(
+            status_code=400,
+            detail="Branch admin is not assigned to a branch"
+        )
+
+    results = (
+        db.query(
+            Enrollment,
+            User,
+            Course
+        )
+        .join(
+            User,
+            Enrollment.user_id == User.id
+        )
+        .join(
+            Course,
+            Enrollment.course_id == Course.id
+        )
+        .filter(
+            Enrollment.branch_id == current_user.branch_id,
+            Enrollment.status == "paid",
+            Enrollment.course_status == "pending"
+        )
+        .order_by(
+            Enrollment.created_at.desc()
+        )
+        .all()
+    )
+
+    return [
+        {
+            "enrollment_id": enrollment.id,
+            "user_id": enrollment.user_id,
+            "course_id": enrollment.course_id,
+
+            "name": student.name,
+            "email": student.email,
+            "phone": student.phone,
+
+            "course_title": enrollment.course_title,
+            "course_image": course.image,
+            "course_duration": course.duration,
+
+            "amount": enrollment.total_fee,
+
+            "payment_status": enrollment.status,
+            "course_status": enrollment.course_status,
+
+            "razorpay_order_id": enrollment.razorpay_order_id,
+            "razorpay_payment_id": enrollment.razorpay_payment_id,
+
+            "created_at": enrollment.created_at
+        }
+
+        for enrollment, student, course in results
+    ]
+
+
+# ============================================================
+# GET APPROVED PURCHASE HISTORY
+# BRANCH ADMIN ONLY
+# ============================================================
+
+@router.get(
+    "/branch-admin/approved",
+    tags=["Branch Admin Purchases"]
+)
+def get_approved_purchases(
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+
+    if current_user.role != "branch_admin":
+        raise HTTPException(
+            status_code=403,
+            detail="Branch admin access required"
+        )
+
+    if not current_user.branch_id:
+        raise HTTPException(
+            status_code=400,
+            detail="Branch admin is not assigned to a branch"
+        )
+
+    results = (
+        db.query(
+            Enrollment,
+            User,
+            Course
+        )
+        .join(
+            User,
+            Enrollment.user_id == User.id
+        )
+        .join(
+            Course,
+            Enrollment.course_id == Course.id
+        )
+        .filter(
+            Enrollment.branch_id == current_user.branch_id,
+            Enrollment.status == "paid",
+            Enrollment.course_status == "approved"
+        )
+        .order_by(
+            Enrollment.created_at.desc()
+        )
+        .all()
+    )
+
+    return [
+        {
+            "enrollment_id": enrollment.id,
+            "user_id": enrollment.user_id,
+            "course_id": enrollment.course_id,
+
+            "name": student.name,
+            "email": student.email,
+            "phone": student.phone,
+
+            "course_title": enrollment.course_title,
+            "course_image": course.image,
+            "course_duration": course.duration,
+
+            "amount": enrollment.total_fee,
+
+            "payment_status": enrollment.status,
+            "course_status": enrollment.course_status,
+
+            "razorpay_order_id": enrollment.razorpay_order_id,
+            "razorpay_payment_id": enrollment.razorpay_payment_id,
+
+            "created_at": enrollment.created_at
+        }
+
+        for enrollment, student, course in results
+    ]
+
+
+# ============================================================
+# APPROVE PURCHASE
+# BRANCH ADMIN ONLY
+# ============================================================
+
+@router.put(
+    "/branch-admin/{enrollment_id}/approve",
+    tags=["Branch Admin Purchases"]
+)
+def approve_purchase(
+    enrollment_id: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+
+    if current_user.role != "branch_admin":
+        raise HTTPException(
+            status_code=403,
+            detail="Branch admin access required"
+        )
+
+    if not current_user.branch_id:
+        raise HTTPException(
+            status_code=400,
+            detail="Branch admin is not assigned to a branch"
+        )
+
+    enrollment = (
+        db.query(Enrollment)
+        .filter(
+            Enrollment.id == enrollment_id,
+            Enrollment.branch_id == current_user.branch_id
+        )
+        .first()
+    )
+
+    if not enrollment:
+        raise HTTPException(
+            status_code=404,
+            detail="Purchase not found in your branch"
+        )
+
+    # Payment must be completed first
+    if enrollment.status != "paid":
+        raise HTTPException(
+            status_code=400,
+            detail="Payment has not been completed"
+        )
+
+    # Already approved
+    if enrollment.course_status == "approved":
+        raise HTTPException(
+            status_code=400,
+            detail="Course is already approved"
+        )
+
+    # Approve course
+    enrollment.course_status = "approved"
+
+    db.commit()
+    db.refresh(enrollment)
+
+    return {
+        "success": True,
+        "message": "Course purchase approved successfully",
+
+        "enrollment_id": enrollment.id,
+
+        "payment_status": enrollment.status,
+        "course_status": enrollment.course_status,
+
+        "razorpay_payment_id": enrollment.razorpay_payment_id
+    }
