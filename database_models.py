@@ -518,3 +518,79 @@ class Enrollment(Base):
         DateTime(timezone=True),
         server_default=func.now()
     )
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+# ==========================================
+# STAFF
+# ==========================================
+
+class Staff(Base):
+    __tablename__ = "staff"
+
+    id = Column(
+        Integer,
+        primary_key=True,
+        index=True
+    )
+
+    # ==========================================
+    # USER ACCOUNT
+    # ==========================================
+
+    user_id = Column(
+        Integer,
+        ForeignKey("users.id"),
+        nullable=False,
+        unique=True
+    )
+
+    # ==========================================
+    # BRANCH
+    # ==========================================
+
+    branch_id = Column(
+        Integer,
+        ForeignKey("branches.id"),
+        nullable=False
+    )
+
+    # ==========================================
+    # ASSIGNED COURSE
+    # ==========================================
+
+    course_id = Column(
+        Integer,
+        ForeignKey("courses.id"),
+        nullable=False
+    )
+
+    # ==========================================
+    # STAFF ADDRESS
+    # ==========================================
+
+    address = Column(
+        String,
+        nullable=True
+    )
+
+    # ==========================================
+    # CREATED DATE
+    # ==========================================
+
+    created_at = Column(
+        DateTime(timezone=True),
+        server_default=func.now()
+    )

@@ -19,6 +19,7 @@ from routers import (
     branches,
     branch_announcements,
     payments,
+    staff
 )
 
 
@@ -164,6 +165,9 @@ app.include_router(branches.public_router)
 app.include_router(branch_announcements.router)
 
 app.include_router(payments.router)
+
+# Branch admin staff routes
+app.include_router(staff.router)
 
 
 # ==========================================
