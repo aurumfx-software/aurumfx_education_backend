@@ -99,7 +99,7 @@ def get_branch_admin_dashboard(
     #
     # All unique students enrolled
     # in this branch, regardless of
-    # payment status
+    # payment or approval status
     # --------------------------------------
 
     total_students = (
@@ -117,8 +117,8 @@ def get_branch_admin_dashboard(
     # --------------------------------------
     # TOTAL PAID STUDENTS
     #
-    # Unique students who have paid
-    # for at least one enrollment
+    # Unique students whose enrollment
+    # is paid AND approved
     # --------------------------------------
 
     total_paid_students = (
@@ -129,7 +129,8 @@ def get_branch_admin_dashboard(
         )
         .filter(
             Enrollment.branch_id == branch_id,
-            Enrollment.status == "paid"
+            Enrollment.status == "paid",
+            Enrollment.course_status == "approved"
         )
         .scalar()
     ) or 0
@@ -150,7 +151,7 @@ def get_branch_admin_dashboard(
     # --------------------------------------
     # TOTAL PROFIT
     #
-    # Sum of all paid enrollments
+    # Only paid AND approved enrollments
     # --------------------------------------
 
     total_profit = (
@@ -162,7 +163,8 @@ def get_branch_admin_dashboard(
         )
         .filter(
             Enrollment.branch_id == branch_id,
-            Enrollment.status == "paid"
+            Enrollment.status == "paid",
+            Enrollment.course_status == "approved"
         )
         .scalar()
     ) or 0
@@ -173,6 +175,10 @@ def get_branch_admin_dashboard(
 
     return {
         "branch_name": branch.name,
+        "branch_location": branch.location,
+        "branch_email": branch.email,
+        "branch_phone": branch.phone,
+
         "total_courses": total_courses,
         "total_students": total_students,
         "total_paid_students": total_paid_students,
@@ -182,10 +188,13 @@ def get_branch_admin_dashboard(
 
 
 # ==========================================
-# TODAY'S PROFIT
+# BRANCH ADMIN TODAY'S PROFIT
 # ==========================================
 
-@router.get("/today-profit")
+@router.get(
+    "/today-profit",
+    tags=["Branch Admin Today's Profit"]
+)
 def get_today_profit(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user)
@@ -228,7 +237,8 @@ def get_today_profit(
     # --------------------------------------
     # TODAY'S PROFIT
     #
-    # Only paid enrollments created today
+    # Only paid AND approved enrollments
+    # created today
     # --------------------------------------
 
     today_profit = (
@@ -241,11 +251,16 @@ def get_today_profit(
         .filter(
             Enrollment.branch_id == branch_id,
             Enrollment.status == "paid",
+            Enrollment.course_status == "approved",
             Enrollment.created_at >= start_of_day,
             Enrollment.created_at <= end_of_day
         )
         .scalar()
     ) or 0
+
+    # --------------------------------------
+    # RESPONSE
+    # --------------------------------------
 
     return {
         "date": today.isoformat(),
