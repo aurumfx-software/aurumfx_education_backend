@@ -3,6 +3,8 @@ import hmac
 import hashlib
 import requests
 
+from datetime import datetime, timezone
+
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
@@ -203,7 +205,10 @@ def create_order(
 
             # Razorpay
             razorpay_order_id=None,
-            razorpay_payment_id=None
+            razorpay_payment_id=None,
+
+            # Payment date
+            paid_at=None
         )
 
         db.add(enrollment)
@@ -319,6 +324,9 @@ def create_order(
 
     # Course approval is also pending
     enrollment.course_status = "pending"
+
+    # No payment date until payment is verified
+    enrollment.paid_at = None
 
     # ========================================================
     # COMMIT ENROLLMENT
@@ -441,7 +449,9 @@ def verify_payment(
 
             "razorpay_order_id": enrollment.razorpay_order_id,
 
-            "razorpay_payment_id": enrollment.razorpay_payment_id
+            "razorpay_payment_id": enrollment.razorpay_payment_id,
+
+            "paid_at": enrollment.paid_at
         }
 
     # ========================================================
@@ -510,6 +520,9 @@ def verify_payment(
     # Payment becomes paid
     enrollment.status = "paid"
 
+    # Store actual payment date/time
+    enrollment.paid_at = datetime.now(timezone.utc)
+
     # Course remains pending until
     # branch admin approves it
     enrollment.course_status = "pending"
@@ -541,5 +554,8 @@ def verify_payment(
 
         "razorpay_order_id": enrollment.razorpay_order_id,
 
-        "razorpay_payment_id": enrollment.razorpay_payment_id
+        "razorpay_payment_id": enrollment.razorpay_payment_id,
+
+        # Actual payment date/time
+        "paid_at": enrollment.paid_at
     }
