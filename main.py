@@ -19,7 +19,8 @@ from routers import (
     branches,
     branch_announcements,
     payments,
-    staff
+    staff,
+    branch_dashboard
 )
 
 
@@ -169,6 +170,8 @@ app.include_router(payments.router)
 # Branch admin staff routes
 app.include_router(staff.router)
 
+# Branch admin dashboard routes
+app.include_router(branch_dashboard.router)
 
 # ==========================================
 # ROOT

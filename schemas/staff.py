@@ -46,4 +46,6 @@ class StaffResponse(BaseModel):
 
     address: str | None = None
 
+    status: str
+
     created_at: datetime

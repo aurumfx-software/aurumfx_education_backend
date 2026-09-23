@@ -106,7 +106,9 @@ def create_staff(
     new_user = User(
         name=staff_data.name,
         email=staff_data.email,
-        password_hash=hash_password(staff_data.password),
+        password_hash=hash_password(
+            staff_data.password
+        ),
         phone=staff_data.phone,
         role="staff",
         branch_id=current_user.branch_id,
@@ -125,7 +127,13 @@ def create_staff(
         user_id=new_user.id,
         branch_id=current_user.branch_id,
         course_id=staff_data.course_id,
-        address=staff_data.address
+
+        name=staff_data.name,
+        email=staff_data.email,
+        phone=staff_data.phone,
+
+        address=staff_data.address,
+        status="Active"
     )
 
     db.add(new_staff)
@@ -133,24 +141,83 @@ def create_staff(
     db.commit()
 
     db.refresh(new_staff)
-    db.refresh(new_user)
 
     return {
         "id": new_staff.id,
-        "user_id": new_user.id,
+        "user_id": new_staff.user_id,
         "branch_id": new_staff.branch_id,
-        "name": new_user.name,
-        "email": new_user.email,
-        "phone": new_user.phone,
+
+        "name": new_staff.name,
+        "email": new_staff.email,
+        "phone": new_staff.phone,
+
         "course_id": course.id,
         "course_name": course.title,
+
         "address": new_staff.address,
+        "status": new_staff.status,
+
         "created_at": new_staff.created_at
     }
 
 
 # ==========================================
+# GET COURSES FOR STAFF DROPDOWN
+# IMPORTANT: Keep this BEFORE /{staff_id}
+# ==========================================
+
+@router.get(
+    "/courses/list"
+)
+def get_staff_courses(
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+
+    # --------------------------------------
+    # CHECK BRANCH ADMIN
+    # --------------------------------------
+
+    if current_user.role != "branch_admin":
+        raise HTTPException(
+            status_code=403,
+            detail="Branch admin access required"
+        )
+
+    if not current_user.branch_id:
+        raise HTTPException(
+            status_code=400,
+            detail="Branch admin is not assigned to a branch"
+        )
+
+    # --------------------------------------
+    # GET ACTIVE COURSES
+    # --------------------------------------
+
+    courses = (
+        db.query(Course)
+        .filter(
+            Course.branch_id == current_user.branch_id,
+            Course.is_active == True
+        )
+        .order_by(
+            Course.title.asc()
+        )
+        .all()
+    )
+
+    return [
+        {
+            "id": course.id,
+            "title": course.title
+        }
+        for course in courses
+    ]
+
+
+# ==========================================
 # GET ALL STAFF
+# Shows BOTH Active and Deleted
 # ==========================================
 
 @router.get(
@@ -179,15 +246,11 @@ def get_all_staff(
         )
 
     # --------------------------------------
-    # GET STAFF
+    # GET ALL STAFF
     # --------------------------------------
 
     results = (
-        db.query(Staff, User, Course)
-        .join(
-            User,
-            Staff.user_id == User.id
-        )
+        db.query(Staff, Course)
         .join(
             Course,
             Staff.course_id == Course.id
@@ -204,25 +267,28 @@ def get_all_staff(
     return [
         {
             "id": staff.id,
-            "user_id": staff_user.id,
+            "user_id": staff.user_id,
             "branch_id": staff.branch_id,
 
-            "name": staff_user.name,
-            "email": staff_user.email,
-            "phone": staff_user.phone,
+            "name": staff.name,
+            "email": staff.email,
+            "phone": staff.phone,
 
             "course_id": course.id,
             "course_name": course.title,
 
             "address": staff.address,
+            "status": staff.status,
+
             "created_at": staff.created_at
         }
-        for staff, staff_user, course in results
+        for staff, course in results
     ]
 
 
 # ==========================================
 # GET SINGLE STAFF
+# Shows Active OR Deleted
 # ==========================================
 
 @router.get(
@@ -256,11 +322,7 @@ def get_staff(
     # --------------------------------------
 
     result = (
-        db.query(Staff, User, Course)
-        .join(
-            User,
-            Staff.user_id == User.id
-        )
+        db.query(Staff, Course)
         .join(
             Course,
             Staff.course_id == Course.id
@@ -278,27 +340,30 @@ def get_staff(
             detail="Staff not found"
         )
 
-    staff, staff_user, course = result
+    staff, course = result
 
     return {
         "id": staff.id,
-        "user_id": staff_user.id,
+        "user_id": staff.user_id,
         "branch_id": staff.branch_id,
 
-        "name": staff_user.name,
-        "email": staff_user.email,
-        "phone": staff_user.phone,
+        "name": staff.name,
+        "email": staff.email,
+        "phone": staff.phone,
 
         "course_id": course.id,
         "course_name": course.title,
 
         "address": staff.address,
+        "status": staff.status,
+
         "created_at": staff.created_at
     }
 
 
 # ==========================================
 # UPDATE STAFF
+# Only ACTIVE staff can be updated
 # ==========================================
 
 @router.put(
@@ -329,14 +394,15 @@ def update_staff(
         )
 
     # --------------------------------------
-    # GET STAFF
+    # GET ACTIVE STAFF
     # --------------------------------------
 
     staff = (
         db.query(Staff)
         .filter(
             Staff.id == staff_id,
-            Staff.branch_id == current_user.branch_id
+            Staff.branch_id == current_user.branch_id,
+            Staff.status == "Active"
         )
         .first()
     )
@@ -344,11 +410,11 @@ def update_staff(
     if not staff:
         raise HTTPException(
             status_code=404,
-            detail="Staff not found"
+            detail="Active staff not found"
         )
 
     # --------------------------------------
-    # GET USER
+    # GET USER ACCOUNT
     # --------------------------------------
 
     staff_user = (
@@ -407,7 +473,7 @@ def update_staff(
         )
 
     # --------------------------------------
-    # UPDATE USER
+    # UPDATE USER ACCOUNT
     # --------------------------------------
 
     staff_user.name = staff_data.name
@@ -415,15 +481,18 @@ def update_staff(
     staff_user.phone = staff_data.phone
     staff_user.address = staff_data.address
 
-    # Change password only if provided
     if staff_data.password:
         staff_user.password_hash = hash_password(
             staff_data.password
         )
 
     # --------------------------------------
-    # UPDATE STAFF
+    # UPDATE STAFF TABLE
     # --------------------------------------
+
+    staff.name = staff_data.name
+    staff.email = staff_data.email
+    staff.phone = staff_data.phone
 
     staff.course_id = staff_data.course_id
     staff.address = staff_data.address
@@ -431,27 +500,29 @@ def update_staff(
     db.commit()
 
     db.refresh(staff)
-    db.refresh(staff_user)
 
     return {
         "id": staff.id,
-        "user_id": staff_user.id,
+        "user_id": staff.user_id,
         "branch_id": staff.branch_id,
 
-        "name": staff_user.name,
-        "email": staff_user.email,
-        "phone": staff_user.phone,
+        "name": staff.name,
+        "email": staff.email,
+        "phone": staff.phone,
 
         "course_id": course.id,
         "course_name": course.title,
 
         "address": staff.address,
+        "status": staff.status,
+
         "created_at": staff.created_at
     }
 
 
 # ==========================================
-# DELETE STAFF
+# SOFT DELETE STAFF
+# Active → Deleted
 # ==========================================
 
 @router.delete(
@@ -480,14 +551,15 @@ def delete_staff(
         )
 
     # --------------------------------------
-    # GET STAFF
+    # GET ACTIVE STAFF
     # --------------------------------------
 
     staff = (
         db.query(Staff)
         .filter(
             Staff.id == staff_id,
-            Staff.branch_id == current_user.branch_id
+            Staff.branch_id == current_user.branch_id,
+            Staff.status == "Active"
         )
         .first()
     )
@@ -495,29 +567,31 @@ def delete_staff(
     if not staff:
         raise HTTPException(
             status_code=404,
-            detail="Staff not found"
+            detail="Active staff not found"
         )
 
-    user_id = staff.user_id
-
     # --------------------------------------
-    # DELETE STAFF
+    # SOFT DELETE STAFF
     # --------------------------------------
 
-    db.delete(staff)
+    staff.status = "Deleted"
 
-    # Delete login account too
+    # --------------------------------------
+    # DISABLE USER LOGIN
+    # --------------------------------------
+
     staff_user = (
         db.query(User)
         .filter(
-            User.id == user_id,
-            User.role == "staff"
+            User.id == staff.user_id,
+            User.role == "staff",
+            User.branch_id == current_user.branch_id
         )
         .first()
     )
 
     if staff_user:
-        db.delete(staff_user)
+        staff_user.status = "Deleted"
 
     db.commit()
 
@@ -525,54 +599,3 @@ def delete_staff(
         "success": True,
         "message": "Staff deleted successfully"
     }
-
-
-# # ==========================================
-# # GET COURSES FOR STAFF DROPDOWN
-# # ==========================================
-
-# @router.get(
-#     "/courses/list"
-# )
-# def get_staff_courses(
-#     db: Session = Depends(get_db),
-#     current_user: User = Depends(get_current_user)
-# ):
-
-#     # --------------------------------------
-#     # CHECK BRANCH ADMIN
-#     # --------------------------------------
-
-#     if current_user.role != "branch_admin":
-#         raise HTTPException(
-#             status_code=403,
-#             detail="Branch admin access required"
-#         )
-
-#     if not current_user.branch_id:
-#         raise HTTPException(
-#             status_code=400,
-#             detail="Branch admin is not assigned to a branch"
-#         )
-
-#     # --------------------------------------
-#     # GET ACTIVE COURSES
-#     # --------------------------------------
-
-#     courses = (
-#         db.query(Course)
-#         .filter(
-#             Course.branch_id == current_user.branch_id,
-#             Course.is_active == True
-#         )
-#         .order_by(Course.title.asc())
-#         .all()
-#     )
-
-#     return [
-#         {
-#             "id": course.id,
-#             "title": course.title
-#         }
-#         for course in courses
-#     ]

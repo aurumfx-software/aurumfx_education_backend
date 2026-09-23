@@ -528,27 +528,13 @@ class Enrollment(Base):
 
 
 
-
-
-
-
-
 # ==========================================
 # STAFF
 # ==========================================
-
 class Staff(Base):
     __tablename__ = "staff"
 
-    id = Column(
-        Integer,
-        primary_key=True,
-        index=True
-    )
-
-    # ==========================================
-    # USER ACCOUNT
-    # ==========================================
+    id = Column(Integer, primary_key=True, index=True)
 
     user_id = Column(
         Integer,
@@ -557,19 +543,11 @@ class Staff(Base):
         unique=True
     )
 
-    # ==========================================
-    # BRANCH
-    # ==========================================
-
     branch_id = Column(
         Integer,
         ForeignKey("branches.id"),
         nullable=False
     )
-
-    # ==========================================
-    # ASSIGNED COURSE
-    # ==========================================
 
     course_id = Column(
         Integer,
@@ -577,18 +555,17 @@ class Staff(Base):
         nullable=False
     )
 
-    # ==========================================
-    # STAFF ADDRESS
-    # ==========================================
+    name = Column(String, nullable=False)
+    email = Column(String, nullable=False)
+    phone = Column(String, nullable=True)
 
-    address = Column(
+    address = Column(String, nullable=True)
+
+    status = Column(
         String,
-        nullable=True
+        default="Active",
+        nullable=False
     )
-
-    # ==========================================
-    # CREATED DATE
-    # ==========================================
 
     created_at = Column(
         DateTime(timezone=True),
