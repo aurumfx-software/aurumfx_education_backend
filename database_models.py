@@ -566,6 +566,8 @@ class Staff(Base):
     phone = Column(String, nullable=True)
 
     address = Column(String, nullable=True)
+    salary = Column(Float, nullable=False)
+
 
     status = Column(
         String,

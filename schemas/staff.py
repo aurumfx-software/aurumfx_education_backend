@@ -13,6 +13,7 @@ class StaffCreate(BaseModel):
     phone: str
     course_id: int
     address: str
+    salary: float
 
 
 # ==========================================
@@ -26,6 +27,7 @@ class StaffUpdate(BaseModel):
     phone: str
     course_id: int
     address: str
+    salary: float
 
 
 # ==========================================
@@ -45,6 +47,8 @@ class StaffResponse(BaseModel):
     course_name: str
 
     address: str | None = None
+
+    salary: float
 
     status: str
 

@@ -69,7 +69,9 @@ def create_staff(
 
     existing_user = (
         db.query(User)
-        .filter(User.email == staff_data.email)
+        .filter(
+            User.email == staff_data.email
+        )
         .first()
     )
 
@@ -131,8 +133,11 @@ def create_staff(
         name=staff_data.name,
         email=staff_data.email,
         phone=staff_data.phone,
-
         address=staff_data.address,
+
+        # SALARY
+        salary=staff_data.salary,
+
         status="Active"
     )
 
@@ -155,6 +160,9 @@ def create_staff(
         "course_name": course.title,
 
         "address": new_staff.address,
+
+        "salary": new_staff.salary,
+
         "status": new_staff.status,
 
         "created_at": new_staff.created_at
@@ -216,8 +224,8 @@ def get_staff_courses(
 
 
 # ==========================================
-# GET ALL STAFF
-# Shows BOTH Active and Deleted
+# GET ALL ACTIVE STAFF
+# Deleted staff are NOT shown
 # ==========================================
 
 @router.get(
@@ -246,7 +254,7 @@ def get_all_staff(
         )
 
     # --------------------------------------
-    # GET ALL STAFF
+    # GET ACTIVE STAFF ONLY
     # --------------------------------------
 
     results = (
@@ -256,7 +264,8 @@ def get_all_staff(
             Staff.course_id == Course.id
         )
         .filter(
-            Staff.branch_id == current_user.branch_id
+            Staff.branch_id == current_user.branch_id,
+            Staff.status == "Active"
         )
         .order_by(
             Staff.created_at.desc()
@@ -278,6 +287,9 @@ def get_all_staff(
             "course_name": course.title,
 
             "address": staff.address,
+
+            "salary": staff.salary,
+
             "status": staff.status,
 
             "created_at": staff.created_at
@@ -287,8 +299,8 @@ def get_all_staff(
 
 
 # ==========================================
-# GET SINGLE STAFF
-# Shows Active OR Deleted
+# GET SINGLE ACTIVE STAFF
+# Deleted staff are NOT shown
 # ==========================================
 
 @router.get(
@@ -318,7 +330,7 @@ def get_staff(
         )
 
     # --------------------------------------
-    # GET STAFF
+    # GET ACTIVE STAFF ONLY
     # --------------------------------------
 
     result = (
@@ -329,7 +341,8 @@ def get_staff(
         )
         .filter(
             Staff.id == staff_id,
-            Staff.branch_id == current_user.branch_id
+            Staff.branch_id == current_user.branch_id,
+            Staff.status == "Active"
         )
         .first()
     )
@@ -355,6 +368,9 @@ def get_staff(
         "course_name": course.title,
 
         "address": staff.address,
+
+        "salary": staff.salary,
+
         "status": staff.status,
 
         "created_at": staff.created_at
@@ -493,9 +509,11 @@ def update_staff(
     staff.name = staff_data.name
     staff.email = staff_data.email
     staff.phone = staff_data.phone
-
     staff.course_id = staff_data.course_id
     staff.address = staff_data.address
+
+    # UPDATE SALARY
+    staff.salary = staff_data.salary
 
     db.commit()
 
@@ -514,6 +532,9 @@ def update_staff(
         "course_name": course.title,
 
         "address": staff.address,
+
+        "salary": staff.salary,
+
         "status": staff.status,
 
         "created_at": staff.created_at
