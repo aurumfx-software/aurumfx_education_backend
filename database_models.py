@@ -635,3 +635,55 @@ class StaffAttendance(Base):
             name="unique_staff_attendance_per_day"
         ),
     )
+
+
+
+
+# ==========================================
+# BRANCH ADMIN ATTENDANCE
+# ==========================================
+
+
+class BranchAdminAttendance(Base):
+    __tablename__ = "branch_admin_attendance"
+
+    id = Column(
+        Integer,
+        primary_key=True,
+        index=True
+    )
+
+    branch_admin_id = Column(
+        Integer,
+        ForeignKey("users.id"),
+        nullable=False
+    )
+
+    branch_id = Column(
+        Integer,
+        ForeignKey("branches.id"),
+        nullable=False
+    )
+
+    date = Column(
+        Date,
+        nullable=False
+    )
+
+    status = Column(
+        String,
+        nullable=False
+    )
+
+    marked_at = Column(
+        DateTime(timezone=True),
+        server_default=func.now()
+    )
+
+    __table_args__ = (
+        UniqueConstraint(
+            "branch_admin_id",
+            "date",
+            name="unique_branch_admin_attendance_per_day"
+        ),
+    )
