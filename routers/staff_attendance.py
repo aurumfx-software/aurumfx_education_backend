@@ -90,7 +90,10 @@ def mark_staff_attendance(
             detail="Branch admin is not assigned to a branch"
         )
 
-    # Check staff belongs to this branch
+    # =====================================================
+    # CHECK STAFF
+    # =====================================================
+
     staff = (
         db.query(Staff)
         .filter(
@@ -107,12 +110,18 @@ def mark_staff_attendance(
             detail="Active staff not found in your branch"
         )
 
-    # Normalize attendance status
+    # =====================================================
+    # NORMALIZE STATUS
+    # =====================================================
+
     status = normalize_attendance_status(
         attendance_data.status
     )
 
-    # Check if attendance already exists
+    # =====================================================
+    # CHECK DUPLICATE ATTENDANCE
+    # =====================================================
+
     existing_attendance = (
         db.query(StaffAttendance)
         .filter(
@@ -128,9 +137,17 @@ def mark_staff_attendance(
             detail="Attendance already marked for this staff on this date"
         )
 
-    # Create attendance
+    # =====================================================
+    # CREATE ATTENDANCE
+    # =====================================================
+
     attendance = StaffAttendance(
         staff_id=staff.id,
+
+        # IMPORTANT:
+        # Save staff name in attendance table
+        staff_name=staff.name,
+
         branch_id=current_user.branch_id,
         date=attendance_data.date,
         status=status,
@@ -141,12 +158,17 @@ def mark_staff_attendance(
     db.commit()
     db.refresh(attendance)
 
+    # =====================================================
+    # RESPONSE
+    # =====================================================
+
     return {
         "message": "Attendance marked successfully",
+
         "attendance": {
             "id": attendance.id,
             "staff_id": attendance.staff_id,
-            "staff_name": staff.name,
+            "staff_name": attendance.staff_name,
             "branch_id": attendance.branch_id,
             "date": attendance.date,
             "status": attendance.status,
@@ -165,12 +187,11 @@ def mark_staff_attendance(
     tags=["Branch Admin - Staff Attendance"]
 )
 def get_staff_attendance(
-    staff_id: int | None = Query(default=None),
     attendance_date: date | None = Query(default=None),
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user)
 ):
-    # Only branch admin can view all branch attendance
+    # Only branch admin can view branch attendance
     if current_user.role != "branch_admin":
         raise HTTPException(
             status_code=403,
@@ -183,7 +204,10 @@ def get_staff_attendance(
             detail="Branch admin is not assigned to a branch"
         )
 
-    # Get only active staff from current branch
+    # =====================================================
+    # GET ONLY THIS BRANCH ATTENDANCE
+    # =====================================================
+
     query = (
         db.query(StaffAttendance, Staff)
         .join(
@@ -196,43 +220,101 @@ def get_staff_attendance(
         )
     )
 
-    # Optional staff filter
-    if staff_id is not None:
-        query = query.filter(
-            StaffAttendance.staff_id == staff_id
-        )
+    # =====================================================
+    # OPTIONAL DATE FILTER
+    # =====================================================
 
-    # Optional date filter
     if attendance_date is not None:
         query = query.filter(
             StaffAttendance.date == attendance_date
         )
 
+    # =====================================================
+    # GET RECORDS
+    # =====================================================
+
     records = (
         query
         .order_by(
-            StaffAttendance.date.desc()
+            StaffAttendance.date.desc(),
+            Staff.name.asc()
         )
         .all()
     )
 
+    # =====================================================
+    # ATTENDANCE COUNTS
+    # =====================================================
+
+    present_count = sum(
+        1
+        for attendance, staff in records
+        if attendance.status.lower() == "present"
+    )
+
+    absent_count = sum(
+        1
+        for attendance, staff in records
+        if attendance.status.lower() == "absent"
+    )
+
+    half_day_count = sum(
+        1
+        for attendance, staff in records
+        if attendance.status.lower() == "half day"
+    )
+
+    leave_count = sum(
+        1
+        for attendance, staff in records
+        if attendance.status.lower() == "leave"
+    )
+
+    # =====================================================
+    # RESPONSE
+    # =====================================================
+
     return {
+        "date": (
+            attendance_date.isoformat()
+            if attendance_date
+            else None
+        ),
+
         "total": len(records),
+
+        "present": present_count,
+
+        "absent": absent_count,
+
+        "half_day": half_day_count,
+
+        "leave": leave_count,
+
         "attendance": [
             {
                 "id": attendance.id,
                 "staff_id": attendance.staff_id,
-                "staff_name": staff.name,
+
+                # Stored name if available.
+                # Fallback for old records where staff_name
+                # was NULL.
+                "staff_name": (
+                    attendance.staff_name
+                    if attendance.staff_name
+                    else staff.name
+                ),
+
                 "branch_id": attendance.branch_id,
                 "date": attendance.date,
                 "status": attendance.status,
                 "marked_by": attendance.marked_by,
                 "marked_at": attendance.marked_at
             }
+
             for attendance, staff in records
         ]
     }
-
 
 # =========================================================
 # STAFF - GET OWN ATTENDANCE ONLY
@@ -254,7 +336,10 @@ def get_my_attendance(
             detail="Staff access required"
         )
 
-    # Find logged-in staff
+    # =====================================================
+    # FIND LOGGED-IN STAFF
+    # =====================================================
+
     staff = (
         db.query(Staff)
         .filter(
@@ -270,7 +355,10 @@ def get_my_attendance(
             detail="Active staff profile not found"
         )
 
-    # Get only this staff's attendance
+    # =====================================================
+    # GET ONLY THIS STAFF'S ATTENDANCE
+    # =====================================================
+
     query = (
         db.query(StaffAttendance)
         .filter(
@@ -294,15 +382,26 @@ def get_my_attendance(
 
     return {
         "total": len(records),
+
         "attendance": [
             {
                 "id": attendance.id,
                 "staff_id": attendance.staff_id,
+
+                # Fallback handles old rows where
+                # staff_name was NULL.
+                "staff_name": (
+                    attendance.staff_name
+                    if attendance.staff_name
+                    else staff.name
+                ),
+
                 "date": attendance.date,
                 "status": attendance.status,
                 "marked_by": attendance.marked_by,
                 "marked_at": attendance.marked_at
             }
+
             for attendance in records
         ]
     }
@@ -335,7 +434,10 @@ def update_staff_attendance(
             detail="Branch admin is not assigned to a branch"
         )
 
-    # Get attendance record
+    # =====================================================
+    # GET ATTENDANCE
+    # =====================================================
+
     attendance = (
         db.query(StaffAttendance)
         .filter(
@@ -351,7 +453,10 @@ def update_staff_attendance(
             detail="Attendance record not found"
         )
 
-    # Get staff to return staff name
+    # =====================================================
+    # GET STAFF
+    # =====================================================
+
     staff = (
         db.query(Staff)
         .filter(
@@ -367,24 +472,40 @@ def update_staff_attendance(
             detail="Staff not found in your branch"
         )
 
-    # Normalize attendance status
+    # =====================================================
+    # NORMALIZE STATUS
+    # =====================================================
+
     status = normalize_attendance_status(
         attendance_data.status
     )
 
-    # Update attendance
+    # =====================================================
+    # UPDATE ATTENDANCE
+    # =====================================================
+
     attendance.status = status
+
+    # Update staff name as well.
+    # This fixes old attendance rows that had NULL staff_name.
+    attendance.staff_name = staff.name
+
     attendance.marked_by = current_user.id
 
     db.commit()
     db.refresh(attendance)
 
+    # =====================================================
+    # RESPONSE
+    # =====================================================
+
     return {
         "message": "Attendance updated successfully",
+
         "attendance": {
             "id": attendance.id,
             "staff_id": attendance.staff_id,
-            "staff_name": staff.name,
+            "staff_name": attendance.staff_name,
             "branch_id": attendance.branch_id,
             "date": attendance.date,
             "status": attendance.status,
