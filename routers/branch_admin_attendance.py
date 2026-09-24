@@ -140,27 +140,22 @@ def mark_own_attendance(
 # =========================================================
 # BRANCH ADMIN - GET OWN ATTENDANCE
 # =========================================================
-
 @router.get(
     "/my",
     tags=["Branch Admin - Own Attendance"]
 )
 def get_my_attendance(
-    attendance_date: date | None = Query(
-        default=None
-    ),
+    attendance_date: date | None = Query(default=None),
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user)
 ):
 
-    # Only branch admin
     if current_user.role != "branch_admin":
         raise HTTPException(
             status_code=403,
             detail="Branch admin access required"
         )
 
-    # Get only logged-in branch admin's attendance
     query = (
         db.query(BranchAdminAttendance)
         .filter(
@@ -172,8 +167,7 @@ def get_my_attendance(
     # Optional date filter
     if attendance_date is not None:
         query = query.filter(
-            BranchAdminAttendance.date
-            == attendance_date
+            BranchAdminAttendance.date == attendance_date
         )
 
     records = (
@@ -184,8 +178,50 @@ def get_my_attendance(
         .all()
     )
 
+    # =====================================================
+    # ATTENDANCE COUNTS
+    # =====================================================
+
+    present_count = sum(
+        1
+        for attendance in records
+        if attendance.status.lower() == "present"
+    )
+
+    absent_count = sum(
+        1
+        for attendance in records
+        if attendance.status.lower() == "absent"
+    )
+
+    half_day_count = sum(
+        1
+        for attendance in records
+        if attendance.status.lower() == "half day"
+    )
+
+    leave_count = sum(
+        1
+        for attendance in records
+        if attendance.status.lower() == "leave"
+    )
+
     return {
+        "date": (
+            attendance_date.isoformat()
+            if attendance_date
+            else None
+        ),
+
         "total": len(records),
+
+        "present": present_count,
+
+        "absent": absent_count,
+
+        "half_day": half_day_count,
+
+        "leave": leave_count,
 
         "attendance": [
             {
@@ -196,11 +232,9 @@ def get_my_attendance(
                 "status": attendance.status,
                 "marked_at": attendance.marked_at
             }
-
             for attendance in records
         ]
     }
-
 
 # =========================================================
 # BRANCH ADMIN - UPDATE OWN ATTENDANCE
