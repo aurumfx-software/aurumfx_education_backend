@@ -1,8 +1,8 @@
-from sqlalchemy import Column, Integer, String, Float, Boolean, DateTime
+from sqlalchemy import Column, Integer, String, Float, Boolean, DateTime,Date
 from sqlalchemy.sql import func
 from database import Base
 from sqlalchemy.dialects.postgresql import JSONB
-from sqlalchemy import ForeignKey
+from sqlalchemy import ForeignKey,UniqueConstraint
 
 
 # ==========================================
@@ -578,4 +578,60 @@ class Staff(Base):
     created_at = Column(
         DateTime(timezone=True),
         server_default=func.now()
+    )
+
+
+
+# ==========================================
+# STAFF ATTENDANCE
+# ==========================================
+class StaffAttendance(Base):
+    __tablename__ = "staff_attendance"
+
+    id = Column(Integer, primary_key=True, index=True)
+
+    staff_id = Column(
+        Integer,
+        ForeignKey("staff.id"),
+        nullable=False
+    )
+
+    staff_name = Column(
+        String,
+        nullable=False
+    )
+
+    branch_id = Column(
+        Integer,
+        ForeignKey("branches.id"),
+        nullable=False
+    )
+
+    date = Column(
+        Date,
+        nullable=False
+    )
+
+    status = Column(
+        String,
+        nullable=False
+    )
+
+    marked_by = Column(
+        Integer,
+        ForeignKey("users.id"),
+        nullable=False
+    )
+
+    marked_at = Column(
+        DateTime(timezone=True),
+        server_default=func.now()
+    )
+
+    __table_args__ = (
+        UniqueConstraint(
+            "staff_id",
+            "date",
+            name="unique_staff_attendance_per_day"
+        ),
     )
