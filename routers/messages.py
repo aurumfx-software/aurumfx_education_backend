@@ -1,13 +1,3 @@
-
-
-
-
-
-
-
-
-
-
 # from fastapi import (
 #     APIRouter,
 #     Depends,
@@ -512,7 +502,28 @@
 #         )
 
 #     # -----------------------------------------------------
-#     # Create message
+#     # IMPORTANT:
+#     # When Super Admin replies, the Branch Admin's
+#     # previous message becomes READ.
+#     # -----------------------------------------------------
+
+#     (
+#         db.query(Message)
+#         .filter(
+#             Message.conversation_id == conversation.id,
+#             Message.sender_role == "branch_admin",
+#             Message.is_read == False
+#         )
+#         .update(
+#             {
+#                 Message.is_read: True
+#             },
+#             synchronize_session=False
+#         )
+#     )
+
+#     # -----------------------------------------------------
+#     # Create Super Admin reply
 #     # -----------------------------------------------------
 
 #     new_message = Message(
@@ -526,6 +537,7 @@
 #     db.add(new_message)
 
 #     db.commit()
+
 #     db.refresh(new_message)
 
 #     # -----------------------------------------------------
@@ -541,6 +553,7 @@
 #                 conversation.id,
 
 #             "message": {
+
 #                 "id":
 #                     new_message.id,
 
@@ -570,12 +583,14 @@
 #     # -----------------------------------------------------
 
 #     return {
-#         "message": "Reply sent successfully",
+#         "message":
+#             "Reply sent successfully",
 
 #         "conversation_id":
 #             conversation.id,
 
 #         "data": {
+
 #             "id":
 #                 new_message.id,
 
@@ -801,12 +816,965 @@
 
 
 
+
+
+# from fastapi import (
+#     APIRouter,
+#     Depends,
+#     HTTPException,
+#     WebSocket,
+#     WebSocketDisconnect
+# )
+
+# from sqlalchemy.orm import Session
+
+# from database import SessionLocal
+
+# from database_models import (
+#     User,
+#     MessageConversation,
+#     Message
+# )
+
+# from routers.auth import get_current_user
+
+# from schemas.message import MessageCreate
+
+# from utils.websocket_manager import manager
+
+# from utils.jwt import decode_access_token
+
+
+# router = APIRouter(
+#     prefix="/messages"
+# )
+
+
+# # =========================================================
+# # DATABASE
+# # =========================================================
+
+# def get_db():
+
+#     db = SessionLocal()
+
+#     try:
+#         yield db
+
+#     finally:
+#         db.close()
+
+
+# # =========================================================
+# # BRANCH ADMIN - SEND MESSAGE
+# # =========================================================
+
+# @router.post(
+#     "/send",
+#     tags=["Branch Admin - Messages"]
+# )
+# async def send_message(
+#     message_data: MessageCreate,
+#     db: Session = Depends(get_db),
+#     current_user: User = Depends(get_current_user)
+# ):
+
+#     # -----------------------------------------------------
+#     # Check Branch Admin
+#     # -----------------------------------------------------
+
+#     if current_user.role != "branch_admin":
+
+#         raise HTTPException(
+#             status_code=403,
+#             detail="Branch admin access required"
+#         )
+
+#     # -----------------------------------------------------
+#     # Check branch
+#     # -----------------------------------------------------
+
+#     if not current_user.branch_id:
+
+#         raise HTTPException(
+#             status_code=400,
+#             detail="Branch admin is not assigned to a branch"
+#         )
+
+#     # -----------------------------------------------------
+#     # Validate message
+#     # -----------------------------------------------------
+
+#     message_text = message_data.message.strip()
+
+#     if not message_text:
+
+#         raise HTTPException(
+#             status_code=400,
+#             detail="Message cannot be empty"
+#         )
+
+#     # -----------------------------------------------------
+#     # Find existing conversation
+#     # -----------------------------------------------------
+
+#     conversation = (
+#         db.query(MessageConversation)
+#         .filter(
+#             MessageConversation.branch_admin_id
+#             == current_user.id
+#         )
+#         .first()
+#     )
+
+#     # -----------------------------------------------------
+#     # Create conversation if it doesn't exist
+#     # -----------------------------------------------------
+
+#     if not conversation:
+
+#         conversation = MessageConversation(
+#             branch_admin_id=current_user.id,
+#             branch_id=current_user.branch_id
+#         )
+
+#         db.add(conversation)
+#         db.flush()
+
+#     # -----------------------------------------------------
+#     # Create message
+#     # -----------------------------------------------------
+
+#     new_message = Message(
+#         conversation_id=conversation.id,
+#         sender_id=current_user.id,
+#         sender_role=current_user.role,
+#         message=message_text,
+#         is_read=False
+#     )
+
+#     db.add(new_message)
+
+#     db.commit()
+#     db.refresh(new_message)
+
+#     # -----------------------------------------------------
+#     # Find active Super Admin
+#     # -----------------------------------------------------
+
+#     super_admin = (
+#         db.query(User)
+#         .filter(
+#             User.role == "super_admin",
+#             User.status == "Active"
+#         )
+#         .first()
+#     )
+
+#     # -----------------------------------------------------
+#     # Send real-time message to Super Admin
+#     # -----------------------------------------------------
+
+#     if super_admin:
+
+#         await manager.send_to_user(
+#             super_admin.id,
+#             {
+#                 "type": "new_message",
+
+#                 "conversation_id": conversation.id,
+
+#                 "message": {
+#                     "id": new_message.id,
+#                     "sender_id": new_message.sender_id,
+#                     "sender_role": new_message.sender_role,
+#                     "message": new_message.message,
+#                     "is_read": new_message.is_read,
+#                     "created_at": (
+#                         new_message.created_at.isoformat()
+#                         if new_message.created_at
+#                         else None
+#                     )
+#                 }
+#             }
+#         )
+
+#     # -----------------------------------------------------
+#     # Response
+#     # -----------------------------------------------------
+
+#     return {
+#         "message": "Message sent successfully",
+
+#         "conversation_id": conversation.id,
+
+#         "data": {
+#             "id": new_message.id,
+#             "sender_id": new_message.sender_id,
+#             "sender_role": new_message.sender_role,
+#             "message": new_message.message,
+#             "is_read": new_message.is_read,
+#             "created_at": new_message.created_at
+#         }
+#     }
+
+
+# # =========================================================
+# # BRANCH ADMIN - GET OWN MESSAGES
+# # =========================================================
+
+# @router.get(
+#     "/my",
+#     tags=["Branch Admin - Messages"]
+# )
+# def get_my_messages(
+#     db: Session = Depends(get_db),
+#     current_user: User = Depends(get_current_user)
+# ):
+
+#     # -----------------------------------------------------
+#     # Check Branch Admin
+#     # -----------------------------------------------------
+
+#     if current_user.role != "branch_admin":
+
+#         raise HTTPException(
+#             status_code=403,
+#             detail="Branch admin access required"
+#         )
+
+#     # -----------------------------------------------------
+#     # Find conversation
+#     # -----------------------------------------------------
+
+#     conversation = (
+#         db.query(MessageConversation)
+#         .filter(
+#             MessageConversation.branch_admin_id
+#             == current_user.id
+#         )
+#         .first()
+#     )
+
+#     # -----------------------------------------------------
+#     # No conversation
+#     # -----------------------------------------------------
+
+#     if not conversation:
+
+#         return {
+#             "conversation_id": None,
+#             "messages": []
+#         }
+
+#     # -----------------------------------------------------
+#     # Mark Super Admin messages as READ
+#     #
+#     # When Branch Admin opens the conversation,
+#     # all messages received from Super Admin become read.
+#     # -----------------------------------------------------
+
+#     (
+#         db.query(Message)
+#         .filter(
+#             Message.conversation_id == conversation.id,
+#             Message.sender_role == "super_admin",
+#             Message.is_read == False
+#         )
+#         .update(
+#             {
+#                 Message.is_read: True
+#             },
+#             synchronize_session=False
+#         )
+#     )
+
+#     db.commit()
+
+#     # -----------------------------------------------------
+#     # Get messages
+#     # -----------------------------------------------------
+
+#     messages = (
+#         db.query(Message)
+#         .filter(
+#             Message.conversation_id
+#             == conversation.id
+#         )
+#         .order_by(
+#             Message.created_at.asc()
+#         )
+#         .all()
+#     )
+
+#     # -----------------------------------------------------
+#     # Response
+#     # -----------------------------------------------------
+
+#     return {
+#         "conversation_id": conversation.id,
+
+#         "messages": [
+#             {
+#                 "id": message.id,
+#                 "sender_id": message.sender_id,
+#                 "sender_role": message.sender_role,
+#                 "message": message.message,
+#                 "is_read": message.is_read,
+#                 "created_at": message.created_at
+#             }
+#             for message in messages
+#         ]
+#     }
+
+
+# # =========================================================
+# # UNREAD MESSAGE COUNT
+# # =========================================================
+
+# @router.get(
+#     "/unread-count",
+#     tags=["Messages UNREAD COUNT"]
+# )
+# def get_unread_count(
+#     db: Session = Depends(get_db),
+#     current_user: User = Depends(get_current_user)
+# ):
+
+#     # =====================================================
+#     # BRANCH ADMIN
+#     # =====================================================
+
+#     if current_user.role == "branch_admin":
+
+#         # Find Branch Admin's conversation
+#         conversation = (
+#             db.query(MessageConversation)
+#             .filter(
+#                 MessageConversation.branch_admin_id
+#                 == current_user.id
+#             )
+#             .first()
+#         )
+
+#         # No conversation yet
+#         if not conversation:
+
+#             return {
+#                 "unread_count": 0
+#             }
+
+#         # Count unread messages received
+#         # from Super Admin
+#         unread_count = (
+#             db.query(Message)
+#             .filter(
+#                 Message.conversation_id == conversation.id,
+#                 Message.sender_role == "super_admin",
+#                 Message.is_read == False
+#             )
+#             .count()
+#         )
+
+#         return {
+#             "unread_count": unread_count
+#         }
+
+#     # =====================================================
+#     # SUPER ADMIN
+#     # =====================================================
+
+#     if current_user.role == "super_admin":
+
+#         conversations = (
+#             db.query(MessageConversation)
+#             .all()
+#         )
+
+#         result = []
+
+#         for conversation in conversations:
+
+#             # Count unread messages received
+#             # from Branch Admin
+#             unread_count = (
+#                 db.query(Message)
+#                 .filter(
+#                     Message.conversation_id == conversation.id,
+#                     Message.sender_role == "branch_admin",
+#                     Message.is_read == False
+#                 )
+#                 .count()
+#             )
+
+#             # Get Branch Admin information
+#             branch_admin = (
+#                 db.query(User)
+#                 .filter(
+#                     User.id
+#                     == conversation.branch_admin_id
+#                 )
+#                 .first()
+#             )
+
+#             result.append(
+#                 {
+#                     "conversation_id":
+#                         conversation.id,
+
+#                     "branch_admin_id":
+#                         conversation.branch_admin_id,
+
+#                     "branch_admin_name":
+#                         branch_admin.name
+#                         if branch_admin
+#                         else None,
+
+#                     "branch_id":
+#                         conversation.branch_id,
+
+#                     "unread_count":
+#                         unread_count
+#                 }
+#             )
+
+#         return {
+#             "conversations": result
+#         }
+
+#     # =====================================================
+#     # ACCESS DENIED
+#     # =====================================================
+
+#     raise HTTPException(
+#         status_code=403,
+#         detail="Access denied"
+#     )
+
+
+# # =========================================================
+# # SUPER ADMIN - GET CONVERSATION
+# # =========================================================
+
+# @router.get(
+#     "/super-admin/{conversation_id}",
+#     tags=["Super Admin - Messages"]
+# )
+# def get_super_admin_conversation(
+#     conversation_id: int,
+#     db: Session = Depends(get_db),
+#     current_user: User = Depends(get_current_user)
+# ):
+
+#     # -----------------------------------------------------
+#     # Check Super Admin
+#     # -----------------------------------------------------
+
+#     if current_user.role != "super_admin":
+
+#         raise HTTPException(
+#             status_code=403,
+#             detail="Super admin access required"
+#         )
+
+#     # -----------------------------------------------------
+#     # Find conversation
+#     # -----------------------------------------------------
+
+#     conversation = (
+#         db.query(MessageConversation)
+#         .filter(
+#             MessageConversation.id
+#             == conversation_id
+#         )
+#         .first()
+#     )
+
+#     # -----------------------------------------------------
+#     # Conversation not found
+#     # -----------------------------------------------------
+
+#     if not conversation:
+
+#         raise HTTPException(
+#             status_code=404,
+#             detail="Conversation not found"
+#         )
+
+#     # -----------------------------------------------------
+#     # Mark Branch Admin messages as READ
+#     #
+#     # When Super Admin opens the conversation,
+#     # all messages received from Branch Admin become read.
+#     # -----------------------------------------------------
+
+#     (
+#         db.query(Message)
+#         .filter(
+#             Message.conversation_id == conversation.id,
+#             Message.sender_role == "branch_admin",
+#             Message.is_read == False
+#         )
+#         .update(
+#             {
+#                 Message.is_read: True
+#             },
+#             synchronize_session=False
+#         )
+#     )
+
+#     db.commit()
+
+#     # -----------------------------------------------------
+#     # Get messages AFTER marking them as read
+#     # -----------------------------------------------------
+
+#     messages = (
+#         db.query(Message)
+#         .filter(
+#             Message.conversation_id
+#             == conversation.id
+#         )
+#         .order_by(
+#             Message.created_at.asc()
+#         )
+#         .all()
+#     )
+
+#     # -----------------------------------------------------
+#     # Get Branch Admin
+#     # -----------------------------------------------------
+
+#     branch_admin = (
+#         db.query(User)
+#         .filter(
+#             User.id
+#             == conversation.branch_admin_id
+#         )
+#         .first()
+#     )
+
+#     # -----------------------------------------------------
+#     # Response
+#     # -----------------------------------------------------
+
+#     return {
+#         "conversation_id":
+#             conversation.id,
+
+#         "branch_admin_id":
+#             conversation.branch_admin_id,
+
+#         "branch_admin_name":
+#             branch_admin.name
+#             if branch_admin
+#             else None,
+
+#         "branch_id":
+#             conversation.branch_id,
+
+#         "messages": [
+#             {
+#                 "id": message.id,
+#                 "sender_id": message.sender_id,
+#                 "sender_role": message.sender_role,
+#                 "message": message.message,
+#                 "is_read": message.is_read,
+#                 "created_at": message.created_at
+#             }
+#             for message in messages
+#         ]
+#     }
+
+
+# # =========================================================
+# # SUPER ADMIN - REPLY
+# # =========================================================
+
+# @router.post(
+#     "/super-admin/{conversation_id}/reply",
+#     tags=["Super Admin - Messages"]
+# )
+# async def super_admin_reply(
+#     conversation_id: int,
+#     message_data: MessageCreate,
+#     db: Session = Depends(get_db),
+#     current_user: User = Depends(get_current_user)
+# ):
+
+#     # -----------------------------------------------------
+#     # Check Super Admin
+#     # -----------------------------------------------------
+
+#     if current_user.role != "super_admin":
+
+#         raise HTTPException(
+#             status_code=403,
+#             detail="Super admin access required"
+#         )
+
+#     # -----------------------------------------------------
+#     # Validate message
+#     # -----------------------------------------------------
+
+#     message_text = message_data.message.strip()
+
+#     if not message_text:
+
+#         raise HTTPException(
+#             status_code=400,
+#             detail="Message cannot be empty"
+#         )
+
+#     # -----------------------------------------------------
+#     # Find conversation
+#     # -----------------------------------------------------
+
+#     conversation = (
+#         db.query(MessageConversation)
+#         .filter(
+#             MessageConversation.id
+#             == conversation_id
+#         )
+#         .first()
+#     )
+
+#     if not conversation:
+
+#         raise HTTPException(
+#             status_code=404,
+#             detail="Conversation not found"
+#         )
+
+#     # -----------------------------------------------------
+#     # IMPORTANT:
+#     # When Super Admin replies, the Branch Admin's
+#     # previous unread messages become READ.
+#     # -----------------------------------------------------
+
+#     (
+#         db.query(Message)
+#         .filter(
+#             Message.conversation_id == conversation.id,
+#             Message.sender_role == "branch_admin",
+#             Message.is_read == False
+#         )
+#         .update(
+#             {
+#                 Message.is_read: True
+#             },
+#             synchronize_session=False
+#         )
+#     )
+
+#     # -----------------------------------------------------
+#     # Create Super Admin reply
+#     # -----------------------------------------------------
+
+#     new_message = Message(
+#         conversation_id=conversation.id,
+#         sender_id=current_user.id,
+#         sender_role=current_user.role,
+#         message=message_text,
+#         is_read=False
+#     )
+
+#     db.add(new_message)
+
+#     db.commit()
+
+#     db.refresh(new_message)
+
+#     # -----------------------------------------------------
+#     # Send real-time message to Branch Admin
+#     # -----------------------------------------------------
+
+#     await manager.send_to_user(
+#         conversation.branch_admin_id,
+#         {
+#             "type": "new_message",
+
+#             "conversation_id":
+#                 conversation.id,
+
+#             "message": {
+
+#                 "id":
+#                     new_message.id,
+
+#                 "sender_id":
+#                     new_message.sender_id,
+
+#                 "sender_role":
+#                     new_message.sender_role,
+
+#                 "message":
+#                     new_message.message,
+
+#                 "is_read":
+#                     new_message.is_read,
+
+#                 "created_at": (
+#                     new_message.created_at.isoformat()
+#                     if new_message.created_at
+#                     else None
+#                 )
+#             }
+#         }
+#     )
+
+#     # -----------------------------------------------------
+#     # Response
+#     # -----------------------------------------------------
+
+#     return {
+
+#         "message":
+#             "Reply sent successfully",
+
+#         "conversation_id":
+#             conversation.id,
+
+#         "data": {
+
+#             "id":
+#                 new_message.id,
+
+#             "sender_id":
+#                 new_message.sender_id,
+
+#             "sender_role":
+#                 new_message.sender_role,
+
+#             "message":
+#                 new_message.message,
+
+#             "is_read":
+#                 new_message.is_read,
+
+#             "created_at":
+#                 new_message.created_at
+#         }
+#     }
+
+
+# # =========================================================
+# # WEBSOCKET - REAL TIME MESSAGING
+# # =========================================================
+
+# @router.websocket("/ws")
+# async def websocket_endpoint(
+#     websocket: WebSocket
+# ):
+
+#     db = SessionLocal()
+
+#     current_user = None
+
+#     try:
+
+#         # -------------------------------------------------
+#         # Accept WebSocket connection
+#         # -------------------------------------------------
+
+#         await websocket.accept()
+
+#         # -------------------------------------------------
+#         # First message must contain JWT
+#         # -------------------------------------------------
+
+#         auth_data = await websocket.receive_json()
+
+#         if auth_data.get("type") != "auth":
+
+#             await websocket.close(
+#                 code=1008
+#             )
+
+#             return
+
+#         token = auth_data.get("token")
+
+#         if not token:
+
+#             await websocket.close(
+#                 code=1008
+#             )
+
+#             return
+
+#         # -------------------------------------------------
+#         # Decode JWT
+#         # -------------------------------------------------
+
+#         payload = decode_access_token(token)
+
+#         if not payload:
+
+#             await websocket.close(
+#                 code=1008
+#             )
+
+#             return
+
+#         user_id = payload.get("sub")
+
+#         if not user_id:
+
+#             await websocket.close(
+#                 code=1008
+#             )
+
+#             return
+
+#         # -------------------------------------------------
+#         # Get user from database
+#         # -------------------------------------------------
+
+#         current_user = (
+#             db.query(User)
+#             .filter(
+#                 User.id == int(user_id)
+#             )
+#             .first()
+#         )
+
+#         if not current_user:
+
+#             await websocket.close(
+#                 code=1008
+#             )
+
+#             return
+
+#         # -------------------------------------------------
+#         # Check user status
+#         # -------------------------------------------------
+
+#         if current_user.status != "Active":
+
+#             await websocket.close(
+#                 code=1008
+#             )
+
+#             return
+
+#         # -------------------------------------------------
+#         # Only Branch Admin and Super Admin
+#         # -------------------------------------------------
+
+#         if current_user.role not in [
+#             "branch_admin",
+#             "super_admin"
+#         ]:
+
+#             await websocket.close(
+#                 code=1008
+#             )
+
+#             return
+
+#         # -------------------------------------------------
+#         # Register connection
+#         # -------------------------------------------------
+
+#         await manager.connect(
+#             current_user.id,
+#             websocket
+#         )
+
+#         # -------------------------------------------------
+#         # Send connection confirmation
+#         # -------------------------------------------------
+
+#         await websocket.send_json(
+#             {
+#                 "type": "connected",
+#                 "user_id": current_user.id,
+#                 "role": current_user.role
+#             }
+#         )
+
+#         # -------------------------------------------------
+#         # Keep connection alive
+#         # -------------------------------------------------
+
+#         while True:
+
+#             data = await websocket.receive_json()
+
+#             # ---------------------------------------------
+#             # Ping / Pong
+#             # ---------------------------------------------
+
+#             if data.get("type") == "ping":
+
+#                 await websocket.send_json(
+#                     {
+#                         "type": "pong"
+#                     }
+#                 )
+
+#     except WebSocketDisconnect:
+
+#         if current_user:
+
+#             manager.disconnect(
+#                 current_user.id
+#             )
+
+#     except Exception as e:
+
+#         print(
+#             "WebSocket error:",
+#             e
+#         )
+
+#         if current_user:
+
+#             manager.disconnect(
+#                 current_user.id
+#             )
+
+#     finally:
+
+#         db.close()
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 from fastapi import (
     APIRouter,
     Depends,
     HTTPException,
     WebSocket,
-    WebSocketDisconnect
+    WebSocketDisconnect,
 )
 
 from sqlalchemy.orm import Session
@@ -816,7 +1784,7 @@ from database import SessionLocal
 from database_models import (
     User,
     MessageConversation,
-    Message
+    Message,
 )
 
 from routers.auth import get_current_user
@@ -838,12 +1806,10 @@ router = APIRouter(
 # =========================================================
 
 def get_db():
-
     db = SessionLocal()
 
     try:
         yield db
-
     finally:
         db.close()
 
@@ -859,18 +1825,16 @@ def get_db():
 async def send_message(
     message_data: MessageCreate,
     db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user)
+    current_user: User = Depends(get_current_user),
 ):
-
     # -----------------------------------------------------
     # Check Branch Admin
     # -----------------------------------------------------
 
     if current_user.role != "branch_admin":
-
         raise HTTPException(
             status_code=403,
-            detail="Branch admin access required"
+            detail="Branch admin access required",
         )
 
     # -----------------------------------------------------
@@ -878,10 +1842,9 @@ async def send_message(
     # -----------------------------------------------------
 
     if not current_user.branch_id:
-
         raise HTTPException(
             status_code=400,
-            detail="Branch admin is not assigned to a branch"
+            detail="Branch admin is not assigned to a branch",
         )
 
     # -----------------------------------------------------
@@ -891,10 +1854,9 @@ async def send_message(
     message_text = message_data.message.strip()
 
     if not message_text:
-
         raise HTTPException(
             status_code=400,
-            detail="Message cannot be empty"
+            detail="Message cannot be empty",
         )
 
     # -----------------------------------------------------
@@ -915,17 +1877,39 @@ async def send_message(
     # -----------------------------------------------------
 
     if not conversation:
-
         conversation = MessageConversation(
             branch_admin_id=current_user.id,
-            branch_id=current_user.branch_id
+            branch_id=current_user.branch_id,
         )
 
         db.add(conversation)
         db.flush()
 
     # -----------------------------------------------------
-    # Create message
+    # IMPORTANT:
+    # Branch Admin is replying.
+    #
+    # Previous unread messages from Super Admin are now
+    # considered READ.
+    # -----------------------------------------------------
+
+    (
+        db.query(Message)
+        .filter(
+            Message.conversation_id == conversation.id,
+            Message.sender_role == "super_admin",
+            Message.is_read == False,
+        )
+        .update(
+            {
+                Message.is_read: True
+            },
+            synchronize_session=False,
+        )
+    )
+
+    # -----------------------------------------------------
+    # Create Branch Admin message
     # -----------------------------------------------------
 
     new_message = Message(
@@ -933,7 +1917,7 @@ async def send_message(
         sender_id=current_user.id,
         sender_role=current_user.role,
         message=message_text,
-        is_read=False
+        is_read=False,
     )
 
     db.add(new_message)
@@ -949,7 +1933,7 @@ async def send_message(
         db.query(User)
         .filter(
             User.role == "super_admin",
-            User.status == "Active"
+            User.status == "Active",
         )
         .first()
     )
@@ -959,14 +1943,11 @@ async def send_message(
     # -----------------------------------------------------
 
     if super_admin:
-
         await manager.send_to_user(
             super_admin.id,
             {
                 "type": "new_message",
-
                 "conversation_id": conversation.id,
-
                 "message": {
                     "id": new_message.id,
                     "sender_id": new_message.sender_id,
@@ -977,9 +1958,9 @@ async def send_message(
                         new_message.created_at.isoformat()
                         if new_message.created_at
                         else None
-                    )
-                }
-            }
+                    ),
+                },
+            },
         )
 
     # -----------------------------------------------------
@@ -988,17 +1969,15 @@ async def send_message(
 
     return {
         "message": "Message sent successfully",
-
         "conversation_id": conversation.id,
-
         "data": {
             "id": new_message.id,
             "sender_id": new_message.sender_id,
             "sender_role": new_message.sender_role,
             "message": new_message.message,
             "is_read": new_message.is_read,
-            "created_at": new_message.created_at
-        }
+            "created_at": new_message.created_at,
+        },
     }
 
 
@@ -1012,18 +1991,16 @@ async def send_message(
 )
 def get_my_messages(
     db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user)
+    current_user: User = Depends(get_current_user),
 ):
-
     # -----------------------------------------------------
     # Check Branch Admin
     # -----------------------------------------------------
 
     if current_user.role != "branch_admin":
-
         raise HTTPException(
             status_code=403,
-            detail="Branch admin access required"
+            detail="Branch admin access required",
         )
 
     # -----------------------------------------------------
@@ -1039,22 +2016,17 @@ def get_my_messages(
         .first()
     )
 
-    # -----------------------------------------------------
-    # No conversation
-    # -----------------------------------------------------
-
     if not conversation:
-
         return {
             "conversation_id": None,
-            "messages": []
+            "messages": [],
         }
 
     # -----------------------------------------------------
     # Mark Super Admin messages as READ
     #
-    # When Branch Admin opens the conversation,
-    # all messages received from Super Admin become read.
+    # Opening the conversation means Branch Admin has
+    # seen the received Super Admin messages.
     # -----------------------------------------------------
 
     (
@@ -1062,13 +2034,13 @@ def get_my_messages(
         .filter(
             Message.conversation_id == conversation.id,
             Message.sender_role == "super_admin",
-            Message.is_read == False
+            Message.is_read == False,
         )
         .update(
             {
                 Message.is_read: True
             },
-            synchronize_session=False
+            synchronize_session=False,
         )
     )
 
@@ -1081,8 +2053,7 @@ def get_my_messages(
     messages = (
         db.query(Message)
         .filter(
-            Message.conversation_id
-            == conversation.id
+            Message.conversation_id == conversation.id
         )
         .order_by(
             Message.created_at.asc()
@@ -1096,7 +2067,6 @@ def get_my_messages(
 
     return {
         "conversation_id": conversation.id,
-
         "messages": [
             {
                 "id": message.id,
@@ -1104,11 +2074,134 @@ def get_my_messages(
                 "sender_role": message.sender_role,
                 "message": message.message,
                 "is_read": message.is_read,
-                "created_at": message.created_at
+                "created_at": message.created_at,
             }
             for message in messages
-        ]
+        ],
     }
+
+
+# =========================================================
+# UNREAD MESSAGE COUNT
+# =========================================================
+
+@router.get(
+    "/unread-count",
+    tags=["Messages UNREAD COUNT"]
+)
+def get_unread_count(
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    # =====================================================
+    # BRANCH ADMIN
+    # =====================================================
+
+    if current_user.role == "branch_admin":
+
+        conversation = (
+            db.query(MessageConversation)
+            .filter(
+                MessageConversation.branch_admin_id
+                == current_user.id
+            )
+            .first()
+        )
+
+        if not conversation:
+            return {
+                "unread_count": 0
+            }
+
+        # Count only messages received from Super Admin
+
+        unread_count = (
+            db.query(Message)
+            .filter(
+                Message.conversation_id == conversation.id,
+                Message.sender_role == "super_admin",
+                Message.is_read == False,
+            )
+            .count()
+        )
+
+        return {
+            "unread_count": unread_count
+        }
+
+    # =====================================================
+    # SUPER ADMIN
+    # =====================================================
+
+    if current_user.role == "super_admin":
+
+        conversations = (
+            db.query(MessageConversation)
+            .all()
+        )
+
+        result = []
+
+        for conversation in conversations:
+
+            # Count only messages received from Branch Admin
+
+            unread_count = (
+                db.query(Message)
+                .filter(
+                    Message.conversation_id
+                    == conversation.id,
+                    Message.sender_role
+                    == "branch_admin",
+                    Message.is_read == False,
+                )
+                .count()
+            )
+
+            branch_admin = (
+                db.query(User)
+                .filter(
+                    User.id
+                    == conversation.branch_admin_id
+                )
+                .first()
+            )
+
+            result.append(
+                {
+                    "conversation_id":
+                        conversation.id,
+
+                    "branch_admin_id":
+                        conversation.branch_admin_id,
+
+                    "branch_admin_name":
+                        (
+                            branch_admin.name
+                            if branch_admin
+                            else None
+                        ),
+
+                    "branch_id":
+                        conversation.branch_id,
+
+                    "unread_count":
+                        unread_count,
+                }
+            )
+
+        return {
+            "conversations": result
+        }
+
+    # =====================================================
+    # ACCESS DENIED
+    # =====================================================
+
+    raise HTTPException(
+        status_code=403,
+        detail="Access denied",
+    )
 
 
 # =========================================================
@@ -1122,18 +2215,16 @@ def get_my_messages(
 def get_super_admin_conversation(
     conversation_id: int,
     db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user)
+    current_user: User = Depends(get_current_user),
 ):
-
     # -----------------------------------------------------
     # Check Super Admin
     # -----------------------------------------------------
 
     if current_user.role != "super_admin":
-
         raise HTTPException(
             status_code=403,
-            detail="Super admin access required"
+            detail="Super admin access required",
         )
 
     # -----------------------------------------------------
@@ -1143,28 +2234,22 @@ def get_super_admin_conversation(
     conversation = (
         db.query(MessageConversation)
         .filter(
-            MessageConversation.id
-            == conversation_id
+            MessageConversation.id == conversation_id
         )
         .first()
     )
 
-    # -----------------------------------------------------
-    # Conversation not found
-    # -----------------------------------------------------
-
     if not conversation:
-
         raise HTTPException(
             status_code=404,
-            detail="Conversation not found"
+            detail="Conversation not found",
         )
 
     # -----------------------------------------------------
     # Mark Branch Admin messages as READ
     #
-    # When Super Admin opens the conversation,
-    # all messages received from Branch Admin become read.
+    # Opening the conversation means Super Admin has
+    # seen the received Branch Admin messages.
     # -----------------------------------------------------
 
     (
@@ -1172,13 +2257,13 @@ def get_super_admin_conversation(
         .filter(
             Message.conversation_id == conversation.id,
             Message.sender_role == "branch_admin",
-            Message.is_read == False
+            Message.is_read == False,
         )
         .update(
             {
                 Message.is_read: True
             },
-            synchronize_session=False
+            synchronize_session=False,
         )
     )
 
@@ -1191,8 +2276,7 @@ def get_super_admin_conversation(
     messages = (
         db.query(Message)
         .filter(
-            Message.conversation_id
-            == conversation.id
+            Message.conversation_id == conversation.id
         )
         .order_by(
             Message.created_at.asc()
@@ -1207,8 +2291,7 @@ def get_super_admin_conversation(
     branch_admin = (
         db.query(User)
         .filter(
-            User.id
-            == conversation.branch_admin_id
+            User.id == conversation.branch_admin_id
         )
         .first()
     )
@@ -1224,9 +2307,11 @@ def get_super_admin_conversation(
             conversation.branch_admin_id,
 
         "branch_admin_name":
-            branch_admin.name
-            if branch_admin
-            else None,
+            (
+                branch_admin.name
+                if branch_admin
+                else None
+            ),
 
         "branch_id":
             conversation.branch_id,
@@ -1238,10 +2323,10 @@ def get_super_admin_conversation(
                 "sender_role": message.sender_role,
                 "message": message.message,
                 "is_read": message.is_read,
-                "created_at": message.created_at
+                "created_at": message.created_at,
             }
             for message in messages
-        ]
+        ],
     }
 
 
@@ -1257,18 +2342,16 @@ async def super_admin_reply(
     conversation_id: int,
     message_data: MessageCreate,
     db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user)
+    current_user: User = Depends(get_current_user),
 ):
-
     # -----------------------------------------------------
     # Check Super Admin
     # -----------------------------------------------------
 
     if current_user.role != "super_admin":
-
         raise HTTPException(
             status_code=403,
-            detail="Super admin access required"
+            detail="Super admin access required",
         )
 
     # -----------------------------------------------------
@@ -1278,10 +2361,9 @@ async def super_admin_reply(
     message_text = message_data.message.strip()
 
     if not message_text:
-
         raise HTTPException(
             status_code=400,
-            detail="Message cannot be empty"
+            detail="Message cannot be empty",
         )
 
     # -----------------------------------------------------
@@ -1291,23 +2373,23 @@ async def super_admin_reply(
     conversation = (
         db.query(MessageConversation)
         .filter(
-            MessageConversation.id
-            == conversation_id
+            MessageConversation.id == conversation_id
         )
         .first()
     )
 
     if not conversation:
-
         raise HTTPException(
             status_code=404,
-            detail="Conversation not found"
+            detail="Conversation not found",
         )
 
     # -----------------------------------------------------
     # IMPORTANT:
-    # When Super Admin replies, the Branch Admin's
-    # previous message becomes READ.
+    # Super Admin is replying.
+    #
+    # Previous unread Branch Admin messages are now
+    # considered READ.
     # -----------------------------------------------------
 
     (
@@ -1315,13 +2397,13 @@ async def super_admin_reply(
         .filter(
             Message.conversation_id == conversation.id,
             Message.sender_role == "branch_admin",
-            Message.is_read == False
+            Message.is_read == False,
         )
         .update(
             {
                 Message.is_read: True
             },
-            synchronize_session=False
+            synchronize_session=False,
         )
     )
 
@@ -1334,13 +2416,12 @@ async def super_admin_reply(
         sender_id=current_user.id,
         sender_role=current_user.role,
         message=message_text,
-        is_read=False
+        is_read=False,
     )
 
     db.add(new_message)
 
     db.commit()
-
     db.refresh(new_message)
 
     # -----------------------------------------------------
@@ -1356,7 +2437,6 @@ async def super_admin_reply(
                 conversation.id,
 
             "message": {
-
                 "id":
                     new_message.id,
 
@@ -1376,9 +2456,9 @@ async def super_admin_reply(
                     new_message.created_at.isoformat()
                     if new_message.created_at
                     else None
-                )
-            }
-        }
+                ),
+            },
+        },
     )
 
     # -----------------------------------------------------
@@ -1393,7 +2473,6 @@ async def super_admin_reply(
             conversation.id,
 
         "data": {
-
             "id":
                 new_message.id,
 
@@ -1410,8 +2489,8 @@ async def super_admin_reply(
                 new_message.is_read,
 
             "created_at":
-                new_message.created_at
-        }
+                new_message.created_at,
+        },
     }
 
 
@@ -1423,7 +2502,6 @@ async def super_admin_reply(
 async def websocket_endpoint(
     websocket: WebSocket
 ):
-
     db = SessionLocal()
 
     current_user = None
@@ -1443,21 +2521,17 @@ async def websocket_endpoint(
         auth_data = await websocket.receive_json()
 
         if auth_data.get("type") != "auth":
-
             await websocket.close(
                 code=1008
             )
-
             return
 
         token = auth_data.get("token")
 
         if not token:
-
             await websocket.close(
                 code=1008
             )
-
             return
 
         # -------------------------------------------------
@@ -1467,21 +2541,17 @@ async def websocket_endpoint(
         payload = decode_access_token(token)
 
         if not payload:
-
             await websocket.close(
                 code=1008
             )
-
             return
 
         user_id = payload.get("sub")
 
         if not user_id:
-
             await websocket.close(
                 code=1008
             )
-
             return
 
         # -------------------------------------------------
@@ -1497,11 +2567,9 @@ async def websocket_endpoint(
         )
 
         if not current_user:
-
             await websocket.close(
                 code=1008
             )
-
             return
 
         # -------------------------------------------------
@@ -1509,11 +2577,9 @@ async def websocket_endpoint(
         # -------------------------------------------------
 
         if current_user.status != "Active":
-
             await websocket.close(
                 code=1008
             )
-
             return
 
         # -------------------------------------------------
@@ -1522,13 +2588,11 @@ async def websocket_endpoint(
 
         if current_user.role not in [
             "branch_admin",
-            "super_admin"
+            "super_admin",
         ]:
-
             await websocket.close(
                 code=1008
             )
-
             return
 
         # -------------------------------------------------
@@ -1544,11 +2608,13 @@ async def websocket_endpoint(
         # Send connection confirmation
         # -------------------------------------------------
 
-        await websocket.send_json({
-            "type": "connected",
-            "user_id": current_user.id,
-            "role": current_user.role
-        })
+        await websocket.send_json(
+            {
+                "type": "connected",
+                "user_id": current_user.id,
+                "role": current_user.role,
+            }
+        )
 
         # -------------------------------------------------
         # Keep connection alive
@@ -1564,14 +2630,15 @@ async def websocket_endpoint(
 
             if data.get("type") == "ping":
 
-                await websocket.send_json({
-                    "type": "pong"
-                })
+                await websocket.send_json(
+                    {
+                        "type": "pong"
+                    }
+                )
 
     except WebSocketDisconnect:
 
         if current_user:
-
             manager.disconnect(
                 current_user.id
             )
@@ -1584,18 +2651,10 @@ async def websocket_endpoint(
         )
 
         if current_user:
-
             manager.disconnect(
                 current_user.id
             )
 
     finally:
-
         db.close()
-
-
-
-
-
-
 
