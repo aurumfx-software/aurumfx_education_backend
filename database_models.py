@@ -687,3 +687,95 @@ class BranchAdminAttendance(Base):
             name="unique_branch_admin_attendance_per_day"
         ),
     )
+
+
+
+
+
+
+# ==========================================
+# MESSAGE CONVERSATION
+# ==========================================
+
+class MessageConversation(Base):
+    __tablename__ = "message_conversations"
+
+    id = Column(
+        Integer,
+        primary_key=True,
+        index=True
+    )
+
+    branch_admin_id = Column(
+        Integer,
+        ForeignKey("users.id"),
+        nullable=False,
+        unique=True
+    )
+
+    branch_id = Column(
+        Integer,
+        ForeignKey("branches.id"),
+        nullable=False
+    )
+
+    created_at = Column(
+        DateTime(timezone=True),
+        server_default=func.now()
+    )
+
+    updated_at = Column(
+        DateTime(timezone=True),
+        server_default=func.now(),
+        onupdate=func.now()
+    )
+
+
+# ==========================================
+# MESSAGE
+# ==========================================
+
+class Message(Base):
+    __tablename__ = "messages"
+
+    id = Column(
+        Integer,
+        primary_key=True,
+        index=True
+    )
+
+    conversation_id = Column(
+        Integer,
+        ForeignKey(
+            "message_conversations.id",
+            ondelete="CASCADE"
+        ),
+        nullable=False
+    )
+
+    sender_id = Column(
+        Integer,
+        ForeignKey("users.id"),
+        nullable=False
+    )
+
+    sender_role = Column(
+        String,
+        nullable=False
+    )
+
+    message = Column(
+        String,
+        nullable=False
+    )
+
+    is_read = Column(
+        Boolean,
+        default=False,
+        nullable=False
+    )
+
+    created_at = Column(
+        DateTime(timezone=True),
+        server_default=func.now()
+    )

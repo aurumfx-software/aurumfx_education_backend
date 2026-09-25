@@ -23,7 +23,8 @@ from routers import (
     branch_dashboard,
     branch_profit,
     staff_attendance,
-    branch_admin_attendance
+    branch_admin_attendance,
+    messages
 )
 
 
@@ -186,6 +187,12 @@ app.include_router(staff_attendance.router)
 # BRANCH ADMIN ATTENDANCE ROUTES
 # ==========================================
 app.include_router(branch_admin_attendance.router)
+
+# ==========================================
+# MESSAGES ROUTES
+# ==========================================
+app.include_router(messages.router)
+
 
 # ==========================================
 # ROOT
