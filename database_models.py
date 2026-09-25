@@ -215,6 +215,11 @@ class Course(Base):
         nullable=True
     )
 
+    payment_plan = Column(
+    JSONB,
+    nullable=True
+)
+
     # Keep this field
     is_active = Column(
         Boolean,
