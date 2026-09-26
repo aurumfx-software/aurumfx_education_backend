@@ -1,3 +1,5 @@
+from datetime import date
+
 from pydantic import BaseModel, ConfigDict
 
 
@@ -13,6 +15,8 @@ class CourseCreate(BaseModel):
     duration: str
     category: str | None = None
     level: str | None = None
+    start_date: date | None = None
+    end_date: date | None = None
     curriculum: list[CurriculumSection] | None = None
 
 
@@ -25,6 +29,10 @@ class CourseResponse(BaseModel):
     image: str | None = None
     category: str | None = None
     level: str | None = None
+
+    start_date: date | None = None
+    end_date: date | None = None
+
     curriculum: list[CurriculumSection] | None = None
     payment_plan: dict | None = None
     is_active: bool

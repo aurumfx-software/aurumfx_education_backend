@@ -159,7 +159,6 @@ class Branch(Base):
 # ==========================================
 # COURSE
 # ==========================================
-
 class Course(Base):
     __tablename__ = "courses"
 
@@ -195,6 +194,20 @@ class Course(Base):
         nullable=False
     )
 
+    # --------------------------------------------------------
+    # COURSE PERIOD
+    # --------------------------------------------------------
+
+    start_date = Column(
+        Date,
+        nullable=True
+    )
+
+    end_date = Column(
+        Date,
+        nullable=True
+    )
+
     image = Column(
         String,
         nullable=True
@@ -215,10 +228,14 @@ class Course(Base):
         nullable=True
     )
 
+    # --------------------------------------------------------
+    # PAYMENT PLAN
+    # --------------------------------------------------------
+
     payment_plan = Column(
-    JSONB,
-    nullable=True
-)
+        JSONB,
+        nullable=True
+    )
 
     # Keep this field
     is_active = Column(
@@ -230,8 +247,6 @@ class Course(Base):
         DateTime(timezone=True),
         server_default=func.now()
     )
-
-
 # ==========================================
 # ENQUIRY
 # ==========================================
