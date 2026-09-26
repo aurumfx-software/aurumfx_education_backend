@@ -24,7 +24,8 @@ from routers import (
     branch_profit,
     staff_attendance,
     branch_admin_attendance,
-    messages
+    messages,
+    admissions
 )
 
 
@@ -192,6 +193,12 @@ app.include_router(branch_admin_attendance.router)
 # MESSAGES ROUTES
 # ==========================================
 app.include_router(messages.router)
+
+
+# ==========================================
+# ADMISSIONS ROUTES
+# ==========================================
+app.include_router(admissions.router)
 
 
 # ==========================================
