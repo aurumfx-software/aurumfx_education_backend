@@ -138,6 +138,9 @@ class BranchAdmissionResponse(BaseModel):
     course_id: int
     course_title: str
 
+    start_date: date | None
+    end_date: date | None
+
     total_fee: float
 
     installment_schedule: str | None
@@ -152,3 +155,5 @@ class BranchAdmissionResponse(BaseModel):
     pending_terms: int
 
     status: str
+
+    payments: list[AdmissionPaymentResponse]
