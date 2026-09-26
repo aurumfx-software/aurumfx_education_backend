@@ -26,6 +26,7 @@ class CourseResponse(BaseModel):
     description: str
     price: float
     duration: str
+
     image: str | None = None
     category: str | None = None
     level: str | None = None
@@ -34,7 +35,12 @@ class CourseResponse(BaseModel):
     end_date: date | None = None
 
     curriculum: list[CurriculumSection] | None = None
-    payment_plan: dict | None = None
+
+    installment_schedule: str | None = None
+    installment_count: int | None = None
+
     is_active: bool
 
-    model_config = ConfigDict(from_attributes=True)
+    model_config = ConfigDict(
+        from_attributes=True
+    )

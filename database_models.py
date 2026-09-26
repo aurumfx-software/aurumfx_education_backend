@@ -229,15 +229,23 @@ class Course(Base):
     )
 
     # --------------------------------------------------------
-    # PAYMENT PLAN
+    # INSTALLMENT DETAILS
     # --------------------------------------------------------
 
-    payment_plan = Column(
-        JSONB,
+    installment_schedule = Column(
+        String,
         nullable=True
     )
 
-    # Keep this field
+    installment_count = Column(
+        Integer,
+        nullable=True
+    )
+
+    # --------------------------------------------------------
+    # STATUS
+    # --------------------------------------------------------
+
     is_active = Column(
         Boolean,
         default=True
