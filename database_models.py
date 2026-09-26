@@ -1286,7 +1286,6 @@ class Announcement(Base):
         server_default=func.now()
     )
 
-
 # ============================================================
 # ENROLLMENT
 # ============================================================
@@ -1333,6 +1332,16 @@ class Enrollment(Base):
         Integer,
         ForeignKey("branches.id"),
         nullable=False
+    )
+
+    # ========================================================
+    # CREATED BY BRANCH ADMIN
+    # ========================================================
+
+    created_by_branch_admin_id = Column(
+        Integer,
+        ForeignKey("users.id"),
+        nullable=True
     )
 
     # ========================================================
@@ -1480,7 +1489,6 @@ class Enrollment(Base):
         DateTime(timezone=True),
         server_default=func.now()
     )
-
 
 # ============================================================
 # ENROLLMENT INSTALLMENT
