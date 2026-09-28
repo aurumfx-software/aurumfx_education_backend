@@ -121,6 +121,9 @@ def get_public_branches_with_courses(
                         "category": course.category,
                         "level": course.level,
                         "curriculum": course.curriculum,
+                        "installment_schedule": course.installment_schedule,
+                        "installment_count": course.installment_count,
+                        "installment_terms": course.installment_terms,
                         "is_active": course.is_active,
                         "created_at": course.created_at
                     }

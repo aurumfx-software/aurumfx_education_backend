@@ -1,1444 +1,3 @@
-# from datetime import date
-
-# from dateutil.relativedelta import relativedelta
-
-# from fastapi import (
-#     APIRouter,
-#     Depends,
-#     HTTPException
-# )
-
-# from sqlalchemy.orm import Session
-
-# from database import SessionLocal
-
-# from database_models import (
-#     User,
-#     Course,
-#     Enrollment,
-#     EnrollmentInstallment,
-#     AdmissionPayment
-# )
-
-# from routers.auth import get_current_user
-
-# from schemas.admission import (
-#     BranchAdmissionCreate,
-#     AdmissionPaymentCreate,
-#     BranchAdmissionResponse,
-#     AdmissionPaymentResponse
-# )
-
-# from utils.password import hash_password
-
-
-# router = APIRouter(
-#     prefix="/admissions",
-#     tags=["Branch Admin Admissions"]
-# )
-
-
-# # ============================================================
-# # DATABASE
-# # ============================================================
-
-# def get_db():
-
-#     db = SessionLocal()
-
-#     try:
-#         yield db
-
-#     finally:
-#         db.close()
-
-
-# # ============================================================
-# # CHECK BRANCH ADMIN
-# # ============================================================
-
-# def check_branch_admin(
-#     current_user: User
-# ):
-
-#     if current_user.role != "branch_admin":
-
-#         raise HTTPException(
-#             status_code=403,
-#             detail="Branch admin access required"
-#         )
-
-#     if not current_user.branch_id:
-
-#         raise HTTPException(
-#             status_code=400,
-#             detail="Branch admin is not assigned to a branch"
-#         )
-
-
-# # ============================================================
-# # CALCULATE INSTALLMENT DUE DATE
-# # ============================================================
-
-# def calculate_due_date(
-#     start_date: date,
-#     installment_number: int,
-#     schedule: str | None
-# ):
-
-#     if schedule == "monthly":
-
-#         return start_date + relativedelta(
-#             months=installment_number - 1
-#         )
-
-#     if schedule == "weekly":
-
-#         return start_date + relativedelta(
-#             weeks=installment_number - 1
-#         )
-
-#     return start_date
-
-
-# # ============================================================
-# # CREATE INSTALLMENT PLAN
-# # ============================================================
-
-# def create_installment_plan(
-#     db: Session,
-#     enrollment: Enrollment,
-#     course: Course
-# ):
-
-#     count = course.installment_count or 0
-
-#     # --------------------------------------------------------
-#     # FULL PAYMENT
-#     # --------------------------------------------------------
-
-#     if count == 0:
-
-#         installment = EnrollmentInstallment(
-
-#             enrollment_id=enrollment.id,
-
-#             installment_number=1,
-
-#             amount=course.price,
-
-#             paid_amount=0,
-
-#             due_date=(
-#                 course.start_date
-#                 or enrollment.admission_date
-#             ),
-
-#             status="pending",
-
-#             paid_date=None,
-
-#             cash_amount=0,
-
-#             upi_amount=0
-#         )
-
-#         db.add(installment)
-
-#         return
-
-#     # --------------------------------------------------------
-#     # INSTALLMENT PAYMENT
-#     # --------------------------------------------------------
-
-#     installment_amount = round(
-#         course.price / count,
-#         2
-#     )
-
-#     base_date = (
-#         course.start_date
-#         or enrollment.admission_date
-#     )
-
-#     for number in range(1, count + 1):
-
-#         due_date = calculate_due_date(
-#             base_date,
-#             number,
-#             course.installment_schedule
-#         )
-
-#         # ----------------------------------------------------
-#         # HANDLE FINAL ROUNDING DIFFERENCE
-#         # ----------------------------------------------------
-
-#         if number == count:
-
-#             previous_amount = round(
-#                 installment_amount * (count - 1),
-#                 2
-#             )
-
-#             amount = round(
-#                 course.price - previous_amount,
-#                 2
-#             )
-
-#         else:
-
-#             amount = installment_amount
-
-#         installment = EnrollmentInstallment(
-
-#             enrollment_id=enrollment.id,
-
-#             installment_number=number,
-
-#             amount=amount,
-
-#             paid_amount=0,
-
-#             due_date=due_date,
-
-#             status="pending",
-
-#             paid_date=None,
-
-#             cash_amount=0,
-
-#             upi_amount=0
-#         )
-
-#         db.add(installment)
-
-
-# # ============================================================
-# # CREATE PAYMENT
-# # ============================================================
-# #
-# # IMPORTANT:
-# #
-# # A payment can cover:
-# #
-# #   - part of one installment
-# #   - one complete installment
-# #   - multiple installments
-# #   - part of the next installment
-# #
-# # Example:
-# #
-# # Course fee = ₹55,000
-# # 5 installments = ₹11,000 each
-# #
-# # Payment = ₹25,000
-# #
-# # Term 1 = ₹11,000 paid
-# # Term 2 = ₹11,000 paid
-# # Term 3 = ₹3,000 partial
-# #
-# # terms_paid = 3
-# #
-# # ============================================================
-
-# def create_payment(
-#     db: Session,
-#     enrollment: Enrollment,
-#     cash_amount: float,
-#     upi_amount: float,
-#     payment_date: date
-# ):
-
-#     total_amount = round(
-#         cash_amount + upi_amount,
-#         2
-#     )
-
-#     if total_amount <= 0:
-
-#         return []
-
-
-#     # ========================================================
-#     # CHECK BALANCE
-#     # ========================================================
-
-#     if total_amount > enrollment.balance_amount:
-
-#         raise HTTPException(
-#             status_code=400,
-#             detail=(
-#                 f"Payment cannot exceed balance "
-#                 f"₹{enrollment.balance_amount:.2f}"
-#             )
-#         )
-
-
-#     # ========================================================
-#     # GET PENDING / PARTIAL INSTALLMENTS
-#     # ========================================================
-
-#     installments = (
-#         db.query(EnrollmentInstallment)
-#         .filter(
-#             EnrollmentInstallment.enrollment_id
-#             == enrollment.id,
-
-#             EnrollmentInstallment.status
-#             != "paid"
-#         )
-#         .order_by(
-#             EnrollmentInstallment.installment_number.asc()
-#         )
-#         .all()
-#     )
-
-
-#     if not installments:
-
-#         raise HTTPException(
-#             status_code=400,
-#             detail="No pending installment found"
-#         )
-
-
-#     # ========================================================
-#     # REMAINING PAYMENT
-#     # ========================================================
-
-#     remaining_payment = round(
-#         total_amount,
-#         2
-#     )
-
-#     remaining_cash = round(
-#         cash_amount,
-#         2
-#     )
-
-#     remaining_upi = round(
-#         upi_amount,
-#         2
-#     )
-
-
-#     payments = []
-
-
-#     # ========================================================
-#     # DISTRIBUTE PAYMENT
-#     # ========================================================
-
-#     for installment in installments:
-
-#         if remaining_payment <= 0:
-
-#             break
-
-
-#         # ----------------------------------------------------
-#         # REMAINING AMOUNT OF CURRENT INSTALLMENT
-#         # ----------------------------------------------------
-
-#         installment_remaining = round(
-#             installment.amount
-#             - installment.paid_amount,
-#             2
-#         )
-
-
-#         if installment_remaining <= 0:
-
-#             continue
-
-
-#         # ----------------------------------------------------
-#         # AMOUNT GOING TO THIS INSTALLMENT
-#         # ----------------------------------------------------
-
-#         payment_for_installment = round(
-#             min(
-#                 remaining_payment,
-#                 installment_remaining
-#             ),
-#             2
-#         )
-
-
-#         if payment_for_installment <= 0:
-
-#             continue
-
-
-#         # ====================================================
-#         # SPLIT CASH / UPI
-#         # ====================================================
-
-#         cash_for_installment = round(
-#             min(
-#                 remaining_cash,
-#                 payment_for_installment
-#             ),
-#             2
-#         )
-
-#         upi_for_installment = round(
-#             payment_for_installment
-#             - cash_for_installment,
-#             2
-#         )
-
-
-#         # ====================================================
-#         # UPDATE INSTALLMENT
-#         # ====================================================
-
-#         installment.paid_amount = round(
-#             installment.paid_amount
-#             + payment_for_installment,
-#             2
-#         )
-
-#         installment.cash_amount = round(
-#             installment.cash_amount
-#             + cash_for_installment,
-#             2
-#         )
-
-#         installment.upi_amount = round(
-#             installment.upi_amount
-#             + upi_for_installment,
-#             2
-#         )
-
-
-#         # ----------------------------------------------------
-#         # INSTALLMENT STATUS
-#         # ----------------------------------------------------
-
-#         if installment.paid_amount >= installment.amount:
-
-#             installment.paid_amount = (
-#                 installment.amount
-#             )
-
-#             installment.status = "paid"
-
-#             installment.paid_date = payment_date
-
-#         else:
-
-#             installment.status = "partial"
-
-
-#         # ====================================================
-#         # PAYMENT HISTORY
-#         # ====================================================
-
-#         payment = AdmissionPayment(
-
-#             enrollment_id=enrollment.id,
-
-#             installment_id=installment.id,
-
-#             installment_number=(
-#                 installment.installment_number
-#             ),
-
-#             user_id=enrollment.user_id,
-
-#             branch_id=enrollment.branch_id,
-
-#             amount=payment_for_installment,
-
-#             cash_amount=cash_for_installment,
-
-#             upi_amount=upi_for_installment,
-
-#             payment_date=payment_date,
-
-#             status="received"
-#         )
-
-#         db.add(payment)
-
-#         payments.append(payment)
-
-
-#         # ====================================================
-#         # UPDATE REMAINING PAYMENT
-#         # ====================================================
-
-#         remaining_payment = round(
-#             remaining_payment
-#             - payment_for_installment,
-#             2
-#         )
-
-#         remaining_cash = round(
-#             remaining_cash
-#             - cash_for_installment,
-#             2
-#         )
-
-#         remaining_upi = round(
-#             remaining_upi
-#             - upi_for_installment,
-#             2
-#         )
-
-
-#     # ========================================================
-#     # UPDATE ENROLLMENT TOTALS
-#     # ========================================================
-
-#     enrollment.total_paid = round(
-#         enrollment.total_paid
-#         + total_amount,
-#         2
-#     )
-
-#     enrollment.balance_amount = round(
-#         enrollment.total_fee
-#         - enrollment.total_paid,
-#         2
-#     )
-
-
-#     # ========================================================
-#     # ENROLLMENT STATUS
-#     # ========================================================
-
-#     if enrollment.balance_amount <= 0:
-
-#         enrollment.balance_amount = 0
-
-#         enrollment.status = "paid"
-
-#     else:
-
-#         enrollment.status = "pending"
-
-
-#     return payments
-
-
-# # ============================================================
-# # REGISTER STUDENT
-# # ============================================================
-
-# @router.post(
-#     "/",
-#     response_model=BranchAdmissionResponse
-# )
-# def create_admission(
-
-#     data: BranchAdmissionCreate,
-
-#     db: Session = Depends(get_db),
-
-#     current_user: User = Depends(get_current_user)
-# ):
-
-#     check_branch_admin(current_user)
-
-
-#     # ========================================================
-#     # VALIDATE PAYMENT STATUS
-#     # ========================================================
-
-#     if data.payment_status not in [
-#         "received",
-#         "not_received"
-#     ]:
-
-#         raise HTTPException(
-#             status_code=400,
-#             detail=(
-#                 "payment_status must be "
-#                 "'received' or 'not_received'"
-#             )
-#         )
-
-
-#     # ========================================================
-#     # FIND COURSE
-#     # ========================================================
-
-#     course = (
-#         db.query(Course)
-#         .filter(
-
-#             Course.id == data.course_id,
-
-#             Course.branch_id
-#             == current_user.branch_id,
-
-#             Course.is_active == True
-
-#         )
-#         .first()
-#     )
-
-
-#     if not course:
-
-#         raise HTTPException(
-#             status_code=404,
-#             detail="Course not found in your branch"
-#         )
-
-
-#     # ========================================================
-#     # CHECK EMAIL
-#     # ========================================================
-
-#     existing_email = (
-#         db.query(User)
-#         .filter(
-#             User.email == data.email
-#         )
-#         .first()
-#     )
-
-
-#     if existing_email:
-
-#         raise HTTPException(
-#             status_code=400,
-#             detail="Email already registered"
-#         )
-
-
-#     # ========================================================
-#     # CHECK PHONE
-#     # ========================================================
-
-#     existing_phone = (
-#         db.query(User)
-#         .filter(
-#             User.phone == data.phone
-#         )
-#         .first()
-#     )
-
-
-#     if existing_phone:
-
-#         raise HTTPException(
-#             status_code=400,
-#             detail="Phone number already registered"
-#         )
-
-
-#     # ========================================================
-#     # PAYMENT
-#     # ========================================================
-
-#     cash_amount = round(
-#         data.cash_amount,
-#         2
-#     )
-
-#     upi_amount = round(
-#         data.upi_amount,
-#         2
-#     )
-
-#     first_payment = round(
-#         cash_amount + upi_amount,
-#         2
-#     )
-
-
-#     # ========================================================
-#     # NOT RECEIVED
-#     # ========================================================
-
-#     if data.payment_status == "not_received":
-
-#         if first_payment > 0:
-
-#             raise HTTPException(
-#                 status_code=400,
-#                 detail=(
-#                     "Cash and UPI amount must be 0 "
-#                     "when payment is not received"
-#                 )
-#             )
-
-
-#     # ========================================================
-#     # RECEIVED
-#     # ========================================================
-
-#     if data.payment_status == "received":
-
-#         if first_payment <= 0:
-
-#             raise HTTPException(
-#                 status_code=400,
-#                 detail=(
-#                     "Enter cash or UPI amount "
-#                     "when payment is received"
-#                 )
-#             )
-
-
-#     # ========================================================
-#     # NEVER EXCEED COURSE FEE
-#     # ========================================================
-
-#     if first_payment > course.price:
-
-#         raise HTTPException(
-#             status_code=400,
-#             detail="Payment cannot exceed course fee"
-#         )
-
-
-#     # ========================================================
-#     # ADMISSION DATE
-#     # ========================================================
-
-#     admission_date = (
-#         data.payment_date
-#         or date.today()
-#     )
-
-
-#     # ========================================================
-#     # INSTALLMENT INFORMATION
-#     # ========================================================
-
-#     installment_count = (
-#         course.installment_count or 0
-#     )
-
-
-#     # This is kept internally in the Enrollment table.
-#     # It is NOT returned in BranchAdmissionResponse.
-
-#     if installment_count > 0:
-
-#         installment_amount = round(
-#             course.price / installment_count,
-#             2
-#         )
-
-#     else:
-
-#         installment_amount = course.price
-
-
-#     # ========================================================
-#     # CREATE USER
-#     # ========================================================
-
-#     new_user = User(
-
-#         name=data.name,
-
-#         email=data.email,
-
-#         phone=data.phone,
-
-#         parent_name=data.parent_name,
-
-#         parent_phone=data.parent_phone,
-
-#         highest_qualification=(
-#             data.highest_qualification
-#         ),
-
-#         address=data.address,
-
-#         password_hash=hash_password(
-#             data.password
-#         ),
-
-#         profile_image=None,
-
-#         role="user",
-
-#         status="Active"
-#     )
-
-#     db.add(new_user)
-
-#     db.flush()
-
-
-#     # ========================================================
-#     # CREATE ENROLLMENT
-#     # ========================================================
-
-#     enrollment = Enrollment(
-
-#         user_id=new_user.id,
-
-#         course_id=course.id,
-
-#         course_title=course.title,
-
-#         branch_id=current_user.branch_id,
-
-#         name=data.name,
-
-#         email=data.email,
-
-#         phone=data.phone,
-
-#         parent_name=data.parent_name,
-
-#         parent_phone=data.parent_phone,
-
-#         highest_qualification=(
-#             data.highest_qualification
-#         ),
-
-#         address=data.address,
-
-#         total_fee=course.price,
-
-#         admission_date=admission_date,
-
-#         installment_schedule=(
-#             course.installment_schedule
-#         ),
-
-#         installment_count=installment_count,
-
-#         installment_amount=installment_amount,
-
-#         total_paid=0,
-
-#         balance_amount=course.price,
-
-#         status="pending",
-
-#         course_status="approved"
-#     )
-
-#     db.add(enrollment)
-
-#     db.flush()
-
-
-#     # ========================================================
-#     # CREATE INSTALLMENT PLAN
-#     # ========================================================
-
-#     create_installment_plan(
-
-#         db=db,
-
-#         enrollment=enrollment,
-
-#         course=course
-#     )
-
-#     db.flush()
-
-
-#     # ========================================================
-#     # INITIAL PAYMENT
-#     # ========================================================
-
-#     if first_payment > 0:
-
-#         create_payment(
-
-#             db=db,
-
-#             enrollment=enrollment,
-
-#             cash_amount=cash_amount,
-
-#             upi_amount=upi_amount,
-
-#             payment_date=admission_date
-#         )
-
-
-#     # ========================================================
-#     # SAVE
-#     # ========================================================
-
-#     db.commit()
-
-#     db.refresh(enrollment)
-
-
-#     return build_admission_response(
-
-#         db=db,
-
-#         enrollment=enrollment
-#     )
-
-
-# # ============================================================
-# # ADD PAYMENT TO EXISTING STUDENT
-# # ============================================================
-
-# @router.post(
-#     "/{enrollment_id}/payments",
-#     response_model=list[AdmissionPaymentResponse]
-# )
-# def add_payment(
-
-#     enrollment_id: int,
-
-#     data: AdmissionPaymentCreate,
-
-#     db: Session = Depends(get_db),
-
-#     current_user: User = Depends(get_current_user)
-# ):
-
-#     check_branch_admin(current_user)
-
-
-#     # ========================================================
-#     # FIND ENROLLMENT
-#     # ========================================================
-
-#     enrollment = (
-#         db.query(Enrollment)
-#         .filter(
-
-#             Enrollment.id == enrollment_id,
-
-#             Enrollment.branch_id
-#             == current_user.branch_id
-
-#         )
-#         .first()
-#     )
-
-
-#     if not enrollment:
-
-#         raise HTTPException(
-#             status_code=404,
-#             detail="Enrollment not found"
-#         )
-
-
-#     # ========================================================
-#     # CHECK BALANCE
-#     # ========================================================
-
-#     if enrollment.balance_amount <= 0:
-
-#         raise HTTPException(
-#             status_code=400,
-#             detail="Student has no pending balance"
-#         )
-
-
-#     # ========================================================
-#     # PAYMENT AMOUNT
-#     # ========================================================
-
-#     cash_amount = round(
-#         data.cash_amount,
-#         2
-#     )
-
-#     upi_amount = round(
-#         data.upi_amount,
-#         2
-#     )
-
-#     amount = round(
-#         cash_amount + upi_amount,
-#         2
-#     )
-
-
-#     if amount <= 0:
-
-#         raise HTTPException(
-#             status_code=400,
-#             detail="Enter a payment amount"
-#         )
-
-
-#     if amount > enrollment.balance_amount:
-
-#         raise HTTPException(
-#             status_code=400,
-#             detail=(
-#                 f"Payment cannot exceed "
-#                 f"balance "
-#                 f"₹{enrollment.balance_amount:.2f}"
-#             )
-#         )
-
-
-#     # ========================================================
-#     # PAYMENT DATE
-#     # ========================================================
-
-#     payment_date = (
-#         data.payment_date
-#         or date.today()
-#     )
-
-
-#     # ========================================================
-#     # SAVE PAYMENT
-#     # ========================================================
-
-#     payments = create_payment(
-
-#         db=db,
-
-#         enrollment=enrollment,
-
-#         cash_amount=cash_amount,
-
-#         upi_amount=upi_amount,
-
-#         payment_date=payment_date
-#     )
-
-
-#     db.commit()
-
-
-#     for payment in payments:
-
-#         db.refresh(payment)
-
-
-#     return payments
-
-
-# # ============================================================
-# # GET ALL BRANCH STUDENTS
-# # ============================================================
-
-# @router.get(
-#     "/",
-#     response_model=list[BranchAdmissionResponse]
-# )
-# def get_branch_admissions(
-
-#     db: Session = Depends(get_db),
-
-#     current_user: User = Depends(get_current_user)
-# ):
-
-#     check_branch_admin(current_user)
-
-
-#     enrollments = (
-#         db.query(Enrollment)
-#         .filter(
-
-#             Enrollment.branch_id
-#             == current_user.branch_id
-
-#         )
-#         .order_by(
-#             Enrollment.created_at.desc()
-#         )
-#         .all()
-#     )
-
-
-#     return [
-
-#         build_admission_response(
-#             db,
-#             enrollment
-#         )
-
-#         for enrollment in enrollments
-
-#     ]
-
-
-# # # ============================================================
-# # # GET ONE STUDENT
-# # # ============================================================
-
-# # @router.get(
-# #     "/{enrollment_id}",
-# #     response_model=BranchAdmissionResponse
-# # )
-# # def get_admission(
-
-# #     enrollment_id: int,
-
-# #     db: Session = Depends(get_db),
-
-# #     current_user: User = Depends(get_current_user)
-# # ):
-
-# #     check_branch_admin(current_user)
-
-
-# #     enrollment = (
-# #         db.query(Enrollment)
-# #         .filter(
-
-# #             Enrollment.id == enrollment_id,
-
-# #             Enrollment.branch_id
-# #             == current_user.branch_id
-
-# #         )
-# #         .first()
-# #     )
-
-
-# #     if not enrollment:
-
-# #         raise HTTPException(
-# #             status_code=404,
-# #             detail="Enrollment not found"
-# #         )
-
-
-# #     return build_admission_response(
-# #         db,
-# #         enrollment
-# #     )
-
-
-# # # ============================================================
-# # # GET PAYMENT HISTORY
-# # # ============================================================
-
-# # @router.get(
-# #     "/{enrollment_id}/payments",
-# #     response_model=list[AdmissionPaymentResponse]
-# # )
-# # def get_payment_history(
-
-# #     enrollment_id: int,
-
-# #     db: Session = Depends(get_db),
-
-# #     current_user: User = Depends(get_current_user)
-# # ):
-
-# #     check_branch_admin(current_user)
-
-
-# #     enrollment = (
-# #         db.query(Enrollment)
-# #         .filter(
-
-# #             Enrollment.id == enrollment_id,
-
-# #             Enrollment.branch_id
-# #             == current_user.branch_id
-
-# #         )
-# #         .first()
-# #     )
-
-
-# #     if not enrollment:
-
-# #         raise HTTPException(
-# #             status_code=404,
-# #             detail="Enrollment not found"
-# #         )
-
-
-# #     return (
-# #         db.query(AdmissionPayment)
-# #         .filter(
-# #             AdmissionPayment.enrollment_id
-# #             == enrollment_id
-# #         )
-# #         .order_by(
-# #             AdmissionPayment.payment_date.asc()
-# #         )
-# #         .all()
-# #     )
-
-
-# # # ============================================================
-# # # BUILD RESPONSE
-# # # ============================================================
-
-# # def build_admission_response(
-# #     db: Session,
-# #     enrollment: Enrollment
-# # ):
-
-# #     # ========================================================
-# #     # GET INSTALLMENTS
-# #     # ========================================================
-
-# #     installments = (
-# #         db.query(EnrollmentInstallment)
-# #         .filter(
-
-# #             EnrollmentInstallment.enrollment_id
-# #             == enrollment.id
-
-# #         )
-# #         .order_by(
-# #             EnrollmentInstallment.installment_number.asc()
-# #         )
-# #         .all()
-# #     )
-
-
-# #     # ========================================================
-# #     # GET PAYMENT HISTORY
-# #     # ========================================================
-
-# #     payments = (
-# #         db.query(AdmissionPayment)
-# #         .filter(
-
-# #             AdmissionPayment.enrollment_id
-# #             == enrollment.id
-
-# #         )
-# #         .order_by(
-# #             AdmissionPayment.payment_date.asc()
-# #         )
-# #         .all()
-# #     )
-
-
-# #     # ========================================================
-# #     # TERMS PAID
-# #     # ========================================================
-# #     #
-# #     # IMPORTANT:
-# #     #
-# #     # Any amount paid toward an installment means
-# #     # that installment counts as a paid term.
-# #     #
-# #     # Example:
-# #     #
-# #     # ₹1,000 paid  -> term 1
-# #     # ₹5,000 paid  -> term 1
-# #     # ₹10,000 paid -> term 1
-# #     #
-# #     # ========================================================
-
-# #     terms_paid = sum(
-
-# #         1
-
-# #         for installment in installments
-
-# #         if installment.paid_amount > 0
-
-# #     )
-
-
-# #     # ========================================================
-# #     # PENDING TERMS
-# #     # ========================================================
-
-# #     pending_terms = max(
-
-# #         len(installments)
-# #         - terms_paid,
-
-# #         0
-
-# #     )
-
-
-# #     # ========================================================
-# #     # RESPONSE
-# #     # ========================================================
-
-# #     return {
-
-# #         "enrollment_id":
-# #             enrollment.id,
-
-# #         "user_id":
-# #             enrollment.user_id,
-
-# #         "name":
-# #             enrollment.name,
-
-# #         "phone":
-# #             enrollment.phone,
-
-# #         "email":
-# #             enrollment.email,
-
-# #         "parent_name":
-# #             enrollment.parent_name,
-
-# #         "parent_phone":
-# #             enrollment.parent_phone,
-
-# #         "highest_qualification":
-# #             enrollment.highest_qualification,
-
-# #         "address":
-# #             enrollment.address,
-
-# #         "course_id":
-# #             enrollment.course_id,
-
-# #         "course_title":
-# #             enrollment.course_title,
-
-# #         "total_fee":
-# #             enrollment.total_fee,
-
-# #         "installment_schedule":
-# #             enrollment.installment_schedule,
-
-# #         "installment_count":
-# #             enrollment.installment_count or 0,
-
-# #         "admission_date":
-# #             enrollment.admission_date,
-
-# #         "total_paid":
-# #             enrollment.total_paid,
-
-# #         "balance_amount":
-# #             enrollment.balance_amount,
-
-# #         "terms_paid":
-# #             terms_paid,
-
-# #         "pending_terms":
-# #             pending_terms,
-
-# #         "status":
-# #             enrollment.status,
-
-# #         "installments":
-# #             installments,
-
-# #         "payments":
-# #             payments
-
-# #     }
-
-
-
-
-# # ============================================================
-# # BUILD RESPONSE
-# # ============================================================
-
-# def build_admission_response(
-#     db: Session,
-#     enrollment: Enrollment
-# ):
-#     installments = (
-#         db.query(EnrollmentInstallment)
-#         .filter(
-#             EnrollmentInstallment.enrollment_id == enrollment.id
-#         )
-#         .order_by(
-#             EnrollmentInstallment.installment_number.asc()
-#         )
-#         .all()
-#     )
-
-#     payments = (
-#         db.query(AdmissionPayment)
-#         .filter(
-#             AdmissionPayment.enrollment_id == enrollment.id
-#         )
-#         .order_by(
-#             AdmissionPayment.payment_date.asc()
-#         )
-#         .all()
-#     )
-
-#     terms_paid = sum(
-#         1
-#         for installment in installments
-#         if installment.paid_amount > 0
-#     )
-
-#     pending_terms = max(
-#         len(installments) - terms_paid,
-#         0
-#     )
-
-#     return {
-#         "enrollment_id": enrollment.id,
-#         "user_id": enrollment.user_id,
-
-#         "name": enrollment.name,
-#         "phone": enrollment.phone,
-#         "email": enrollment.email,
-
-#         "parent_name": enrollment.parent_name,
-#         "parent_phone": enrollment.parent_phone,
-#         "highest_qualification": enrollment.highest_qualification,
-#         "address": enrollment.address,
-
-#         "course_id": enrollment.course_id,
-#         "course_title": enrollment.course_title,
-
-#         "total_fee": enrollment.total_fee,
-
-#         "installment_schedule": enrollment.installment_schedule,
-#         "installment_count": enrollment.installment_count or 0,
-
-#         "admission_date": enrollment.admission_date,
-
-#         "total_paid": enrollment.total_paid,
-#         "balance_amount": enrollment.balance_amount,
-
-#         "terms_paid": terms_paid,
-#         "pending_terms": pending_terms,
-
-#         "status": enrollment.status,
-
-#         "payments": payments
-#     }
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
 from datetime import date
 
 from dateutil.relativedelta import relativedelta
@@ -1484,7 +43,6 @@ router = APIRouter(
 # ============================================================
 
 def get_db():
-
     db = SessionLocal()
 
     try:
@@ -1501,16 +59,13 @@ def get_db():
 def check_branch_admin(
     current_user: User
 ):
-
     if current_user.role != "branch_admin":
-
         raise HTTPException(
             status_code=403,
             detail="Branch admin access required"
         )
 
     if not current_user.branch_id:
-
         raise HTTPException(
             status_code=400,
             detail="Branch admin is not assigned to a branch"
@@ -1526,15 +81,12 @@ def calculate_due_date(
     installment_number: int,
     schedule: str | None
 ):
-
     if schedule == "monthly":
-
         return start_date + relativedelta(
             months=installment_number - 1
         )
 
     if schedule == "weekly":
-
         return start_date + relativedelta(
             weeks=installment_number - 1
         )
@@ -1551,47 +103,66 @@ def create_installment_plan(
     enrollment: Enrollment,
     course: Course
 ):
-
     count = course.installment_count or 0
 
-    # --------------------------------------------------------
+    # ========================================================
     # FULL PAYMENT
-    # --------------------------------------------------------
+    # ========================================================
 
     if count == 0:
 
         installment = EnrollmentInstallment(
-
             enrollment_id=enrollment.id,
-
             installment_number=1,
-
             amount=course.price,
-
             paid_amount=0,
-
             due_date=(
                 course.start_date
                 or enrollment.admission_date
             ),
-
             status="pending",
-
             paid_date=None,
-
             cash_amount=0,
-
             upi_amount=0
         )
 
         db.add(installment)
+        enrollment.installment_count = 1
 
         return
 
+    configured_terms = course.installment_terms or []
+    if len(configured_terms) == count:
+        if round(
+            sum(float(term["amount"]) for term in configured_terms), 2
+        ) != round(course.price, 2):
+            raise HTTPException(
+                status_code=409,
+                detail="Course installment amounts do not equal the course fee",
+            )
 
-    # --------------------------------------------------------
+        for number, term in enumerate(configured_terms, start=1):
+            due_date = term["due_date"]
+            if isinstance(due_date, str):
+                due_date = date.fromisoformat(due_date)
+            db.add(
+                EnrollmentInstallment(
+                    enrollment_id=enrollment.id,
+                    installment_number=number,
+                    amount=round(float(term["amount"]), 2),
+                    paid_amount=0,
+                    due_date=due_date,
+                    status="pending",
+                    paid_date=None,
+                    cash_amount=0,
+                    upi_amount=0,
+                )
+            )
+        return
+
+    # ========================================================
     # INSTALLMENT PAYMENT
-    # --------------------------------------------------------
+    # ========================================================
 
     installment_amount = round(
         course.price / count,
@@ -1611,9 +182,9 @@ def create_installment_plan(
             course.installment_schedule
         )
 
-        # ----------------------------------------------------
+        # ====================================================
         # HANDLE FINAL ROUNDING DIFFERENCE
-        # ----------------------------------------------------
+        # ====================================================
 
         if number == count:
 
@@ -1628,28 +199,17 @@ def create_installment_plan(
             )
 
         else:
-
             amount = installment_amount
 
-
         installment = EnrollmentInstallment(
-
             enrollment_id=enrollment.id,
-
             installment_number=number,
-
             amount=amount,
-
             paid_amount=0,
-
             due_date=due_date,
-
             status="pending",
-
             paid_date=None,
-
             cash_amount=0,
-
             upi_amount=0
         )
 
@@ -1665,7 +225,8 @@ def create_payment(
     enrollment: Enrollment,
     cash_amount: float,
     upi_amount: float,
-    payment_date: date
+    payment_date: date,
+    installment_number: int | None = None,
 ):
 
     total_amount = round(
@@ -1674,16 +235,13 @@ def create_payment(
     )
 
     if total_amount <= 0:
-
         return []
-
 
     # ========================================================
     # CHECK BALANCE
     # ========================================================
 
     if total_amount > enrollment.balance_amount:
-
         raise HTTPException(
             status_code=400,
             detail=(
@@ -1692,12 +250,11 @@ def create_payment(
             )
         )
 
-
     # ========================================================
     # GET PENDING / PARTIAL INSTALLMENTS
     # ========================================================
 
-    installments = (
+    installment_query = (
         db.query(EnrollmentInstallment)
         .filter(
             EnrollmentInstallment.enrollment_id
@@ -1706,20 +263,40 @@ def create_payment(
             EnrollmentInstallment.status
             != "paid"
         )
-        .order_by(
-            EnrollmentInstallment.installment_number.asc()
+    )
+    if installment_number is not None:
+        installment_query = installment_query.filter(
+            EnrollmentInstallment.installment_number == installment_number
         )
+    installments = (
+        installment_query
+        .order_by(EnrollmentInstallment.installment_number.asc())
         .all()
     )
 
-
     if not installments:
-
         raise HTTPException(
             status_code=400,
-            detail="No pending installment found"
+            detail=(
+                "Selected installment is not available"
+                if installment_number is not None
+                else "No pending installment found"
+            )
         )
 
+    if installment_number is not None:
+        selected_remaining = round(
+            installments[0].amount - installments[0].paid_amount,
+            2,
+        )
+        if total_amount > selected_remaining:
+            raise HTTPException(
+                status_code=400,
+                detail=(
+                    "Payment cannot exceed selected installment balance "
+                    f"₹{selected_remaining:.2f}"
+                ),
+            )
 
     # ========================================================
     # REMAINING PAYMENT
@@ -1740,9 +317,7 @@ def create_payment(
         2
     )
 
-
     payments = []
-
 
     # ========================================================
     # DISTRIBUTE PAYMENT
@@ -1751,13 +326,11 @@ def create_payment(
     for installment in installments:
 
         if remaining_payment <= 0:
-
             break
 
-
-        # ----------------------------------------------------
+        # ====================================================
         # REMAINING AMOUNT OF CURRENT INSTALLMENT
-        # ----------------------------------------------------
+        # ====================================================
 
         installment_remaining = round(
             installment.amount
@@ -1765,15 +338,12 @@ def create_payment(
             2
         )
 
-
         if installment_remaining <= 0:
-
             continue
 
-
-        # ----------------------------------------------------
+        # ====================================================
         # AMOUNT GOING TO THIS INSTALLMENT
-        # ----------------------------------------------------
+        # ====================================================
 
         payment_for_installment = round(
             min(
@@ -1783,11 +353,8 @@ def create_payment(
             2
         )
 
-
         if payment_for_installment <= 0:
-
             continue
-
 
         # ====================================================
         # SPLIT CASH / UPI
@@ -1806,7 +373,6 @@ def create_payment(
             - cash_for_installment,
             2
         )
-
 
         # ====================================================
         # UPDATE INSTALLMENT
@@ -1830,10 +396,9 @@ def create_payment(
             2
         )
 
-
-        # ----------------------------------------------------
+        # ====================================================
         # INSTALLMENT STATUS
-        # ----------------------------------------------------
+        # ====================================================
 
         if installment.paid_amount >= installment.amount:
 
@@ -1846,16 +411,13 @@ def create_payment(
             installment.paid_date = payment_date
 
         else:
-
             installment.status = "partial"
-
 
         # ====================================================
         # PAYMENT HISTORY
         # ====================================================
 
         payment = AdmissionPayment(
-
             enrollment_id=enrollment.id,
 
             installment_id=installment.id,
@@ -1883,7 +445,6 @@ def create_payment(
 
         payments.append(payment)
 
-
         # ====================================================
         # UPDATE REMAINING PAYMENT
         # ====================================================
@@ -1906,7 +467,6 @@ def create_payment(
             2
         )
 
-
     # ========================================================
     # UPDATE ENROLLMENT TOTALS
     # ========================================================
@@ -1923,7 +483,6 @@ def create_payment(
         2
     )
 
-
     # ========================================================
     # ENROLLMENT STATUS
     # ========================================================
@@ -1935,9 +494,7 @@ def create_payment(
         enrollment.status = "paid"
 
     else:
-
         enrollment.status = "pending"
-
 
     return payments
 
@@ -1951,16 +508,12 @@ def create_payment(
     response_model=BranchAdmissionResponse
 )
 def create_admission(
-
     data: BranchAdmissionCreate,
-
     db: Session = Depends(get_db),
-
     current_user: User = Depends(get_current_user)
 ):
 
     check_branch_admin(current_user)
-
 
     # ========================================================
     # VALIDATE PAYMENT STATUS
@@ -1970,7 +523,6 @@ def create_admission(
         "received",
         "not_received"
     ]:
-
         raise HTTPException(
             status_code=400,
             detail=(
@@ -1979,7 +531,6 @@ def create_admission(
             )
         )
 
-
     # ========================================================
     # FIND COURSE
     # ========================================================
@@ -1987,26 +538,21 @@ def create_admission(
     course = (
         db.query(Course)
         .filter(
-
             Course.id == data.course_id,
 
             Course.branch_id
             == current_user.branch_id,
 
             Course.is_active == True
-
         )
         .first()
     )
 
-
     if not course:
-
         raise HTTPException(
             status_code=404,
             detail="Course not found in your branch"
         )
-
 
     # ========================================================
     # CHECK EMAIL
@@ -2020,14 +566,11 @@ def create_admission(
         .first()
     )
 
-
     if existing_email:
-
         raise HTTPException(
             status_code=400,
             detail="Email already registered"
         )
-
 
     # ========================================================
     # CHECK PHONE
@@ -2041,14 +584,11 @@ def create_admission(
         .first()
     )
 
-
     if existing_phone:
-
         raise HTTPException(
             status_code=400,
             detail="Phone number already registered"
         )
-
 
     # ========================================================
     # PAYMENT
@@ -2069,7 +609,6 @@ def create_admission(
         2
     )
 
-
     # ========================================================
     # NOT RECEIVED
     # ========================================================
@@ -2077,7 +616,6 @@ def create_admission(
     if data.payment_status == "not_received":
 
         if first_payment > 0:
-
             raise HTTPException(
                 status_code=400,
                 detail=(
@@ -2086,7 +624,6 @@ def create_admission(
                 )
             )
 
-
     # ========================================================
     # RECEIVED
     # ========================================================
@@ -2094,7 +631,6 @@ def create_admission(
     if data.payment_status == "received":
 
         if first_payment <= 0:
-
             raise HTTPException(
                 status_code=400,
                 detail=(
@@ -2103,18 +639,28 @@ def create_admission(
                 )
             )
 
-
     # ========================================================
     # NEVER EXCEED COURSE FEE
     # ========================================================
 
     if first_payment > course.price:
-
         raise HTTPException(
             status_code=400,
             detail="Payment cannot exceed course fee"
         )
 
+    if data.installment_number is not None:
+        available_installments = max(course.installment_count or 0, 1)
+        if data.installment_number > available_installments:
+            raise HTTPException(
+                status_code=400,
+                detail="Selected installment does not exist for this course",
+            )
+        if data.payment_status != "received" or first_payment <= 0:
+            raise HTTPException(
+                status_code=400,
+                detail="Select an installment only when recording a payment",
+            )
 
     # ========================================================
     # ADMISSION DATE
@@ -2125,7 +671,6 @@ def create_admission(
         or date.today()
     )
 
-
     # ========================================================
     # INSTALLMENT INFORMATION
     # ========================================================
@@ -2133,7 +678,6 @@ def create_admission(
     installment_count = (
         course.installment_count or 0
     )
-
 
     # Kept internally in Enrollment.
     # Not returned in BranchAdmissionResponse.
@@ -2149,13 +693,11 @@ def create_admission(
 
         installment_amount = course.price
 
-
     # ========================================================
     # CREATE USER
     # ========================================================
 
     new_user = User(
-
         name=data.name,
 
         email=data.email,
@@ -2187,7 +729,6 @@ def create_admission(
 
     db.flush()
 
-
     # ========================================================
     # CREATE ENROLLMENT
     # ========================================================
@@ -2201,6 +742,10 @@ def create_admission(
         course_title=course.title,
 
         branch_id=current_user.branch_id,
+
+        # IMPORTANT:
+        # Store the branch admin who created this admission.
+        created_by_branch_admin_id=current_user.id,
 
         name=data.name,
 
@@ -2243,22 +788,17 @@ def create_admission(
 
     db.flush()
 
-
     # ========================================================
     # CREATE INSTALLMENT PLAN
     # ========================================================
 
     create_installment_plan(
-
         db=db,
-
         enrollment=enrollment,
-
         course=course
     )
 
     db.flush()
-
 
     # ========================================================
     # INITIAL PAYMENT
@@ -2267,7 +807,6 @@ def create_admission(
     if first_payment > 0:
 
         create_payment(
-
             db=db,
 
             enrollment=enrollment,
@@ -2276,9 +815,10 @@ def create_admission(
 
             upi_amount=upi_amount,
 
-            payment_date=admission_date
-        )
+            payment_date=admission_date,
 
+            installment_number=data.installment_number,
+        )
 
     # ========================================================
     # SAVE
@@ -2288,11 +828,8 @@ def create_admission(
 
     db.refresh(enrollment)
 
-
     return build_admission_response(
-
         db=db,
-
         enrollment=enrollment
     )
 
@@ -2306,7 +843,6 @@ def create_admission(
     response_model=list[AdmissionPaymentResponse]
 )
 def add_payment(
-
     enrollment_id: int,
 
     data: AdmissionPaymentCreate,
@@ -2318,44 +854,44 @@ def add_payment(
 
     check_branch_admin(current_user)
 
-
     # ========================================================
     # FIND ENROLLMENT
     # ========================================================
+    #
+    # IMPORTANT:
+    # The logged-in branch admin can only add payment
+    # to an admission created by that same branch admin.
+    #
 
     enrollment = (
         db.query(Enrollment)
         .filter(
-
             Enrollment.id == enrollment_id,
 
             Enrollment.branch_id
-            == current_user.branch_id
+            == current_user.branch_id,
 
+            Enrollment.created_by_branch_admin_id
+            == current_user.id
         )
         .first()
     )
 
-
     if not enrollment:
-
         raise HTTPException(
             status_code=404,
             detail="Enrollment not found"
         )
-
 
     # ========================================================
     # CHECK BALANCE
     # ========================================================
 
     if enrollment.balance_amount <= 0:
-
         raise HTTPException(
             status_code=400,
             detail="Student has no pending balance"
         )
-
 
     # ========================================================
     # PAYMENT AMOUNT
@@ -2376,17 +912,13 @@ def add_payment(
         2
     )
 
-
     if amount <= 0:
-
         raise HTTPException(
             status_code=400,
             detail="Enter a payment amount"
         )
 
-
     if amount > enrollment.balance_amount:
-
         raise HTTPException(
             status_code=400,
             detail=(
@@ -2395,7 +927,6 @@ def add_payment(
                 f"₹{enrollment.balance_amount:.2f}"
             )
         )
-
 
     # ========================================================
     # PAYMENT DATE
@@ -2406,13 +937,11 @@ def add_payment(
         or date.today()
     )
 
-
     # ========================================================
     # SAVE PAYMENT
     # ========================================================
 
     payments = create_payment(
-
         db=db,
 
         enrollment=enrollment,
@@ -2421,23 +950,21 @@ def add_payment(
 
         upi_amount=upi_amount,
 
-        payment_date=payment_date
-    )
+        payment_date=payment_date,
 
+        installment_number=data.installment_number,
+    )
 
     db.commit()
 
-
     for payment in payments:
-
         db.refresh(payment)
-
 
     return payments
 
 
 # ============================================================
-# GET ALL BRANCH STUDENTS
+# GET MY BRANCH ADMIN ADMISSIONS
 # ============================================================
 
 @router.get(
@@ -2453,14 +980,23 @@ def get_branch_admissions(
 
     check_branch_admin(current_user)
 
+    # ========================================================
+    # IMPORTANT:
+    # Return ONLY admissions created by the logged-in
+    # branch admin.
+    #
+    # Even if another branch admin belongs to the same
+    # branch, their students will NOT be returned.
+    # ========================================================
 
     enrollments = (
         db.query(Enrollment)
         .filter(
-
             Enrollment.branch_id
-            == current_user.branch_id
+            == current_user.branch_id,
 
+            Enrollment.created_by_branch_admin_id
+            == current_user.id
         )
         .order_by(
             Enrollment.created_at.desc()
@@ -2468,17 +1004,48 @@ def get_branch_admissions(
         .all()
     )
 
-
     return [
-
         build_admission_response(
             db,
             enrollment
         )
-
         for enrollment in enrollments
-
     ]
+
+
+# ============================================================
+# GET OVERDUE ADMISSIONS
+# ============================================================
+
+@router.get(
+    "/due",
+    response_model=list[BranchAdmissionResponse],
+)
+def get_due_admissions(
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    check_branch_admin(current_user)
+    today = date.today()
+
+    enrollments = (
+        db.query(Enrollment)
+        .join(
+            EnrollmentInstallment,
+            EnrollmentInstallment.enrollment_id == Enrollment.id,
+        )
+        .filter(
+            Enrollment.branch_id == current_user.branch_id,
+            Enrollment.created_by_branch_admin_id == current_user.id,
+            EnrollmentInstallment.due_date <= today,
+            EnrollmentInstallment.paid_amount < EnrollmentInstallment.amount,
+        )
+        .distinct()
+        .order_by(Enrollment.created_at.desc())
+        .all()
+    )
+
+    return [build_admission_response(db, enrollment) for enrollment in enrollments]
 
 
 # ============================================================
@@ -2502,7 +1069,6 @@ def build_admission_response(
         .first()
     )
 
-
     # ========================================================
     # GET INSTALLMENTS
     # ========================================================
@@ -2518,7 +1084,6 @@ def build_admission_response(
         )
         .all()
     )
-
 
     # ========================================================
     # GET PAYMENT HISTORY
@@ -2536,7 +1101,6 @@ def build_admission_response(
         .all()
     )
 
-
     # ========================================================
     # TERMS PAID
     # ========================================================
@@ -2544,9 +1108,8 @@ def build_admission_response(
     terms_paid = sum(
         1
         for installment in installments
-        if installment.paid_amount > 0
+        if installment.status == "paid"
     )
-
 
     # ========================================================
     # PENDING TERMS
@@ -2556,7 +1119,12 @@ def build_admission_response(
         len(installments) - terms_paid,
         0
     )
-
+    due_installments = [
+        installment
+        for installment in installments
+        if installment.due_date <= date.today()
+        and installment.amount - installment.paid_amount > 0
+    ]
 
     # ========================================================
     # RESPONSE
@@ -2626,6 +1194,50 @@ def build_admission_response(
 
         "pending_terms":
             pending_terms,
+
+        "due_installment_count":
+            len(due_installments),
+
+        "installments": [
+            {
+                "id": installment.id,
+                "installment_number": installment.installment_number,
+                "amount": installment.amount,
+                "paid_amount": installment.paid_amount,
+                "remaining_amount": round(
+                    installment.amount - installment.paid_amount, 2
+                ),
+                "is_due": (
+                    installment.due_date <= date.today()
+                    and installment.amount - installment.paid_amount > 0
+                ),
+                "due_date": installment.due_date,
+                "status": installment.status,
+                "paid_date": installment.paid_date,
+                "cash_amount": installment.cash_amount,
+                "upi_amount": installment.upi_amount,
+            }
+            for installment in installments
+        ],
+
+        "due_installments": [
+            {
+                "id": installment.id,
+                "installment_number": installment.installment_number,
+                "amount": installment.amount,
+                "paid_amount": installment.paid_amount,
+                "remaining_amount": round(
+                    installment.amount - installment.paid_amount, 2
+                ),
+                "is_due": True,
+                "due_date": installment.due_date,
+                "status": installment.status,
+                "paid_date": installment.paid_date,
+                "cash_amount": installment.cash_amount,
+                "upi_amount": installment.upi_amount,
+            }
+            for installment in due_installments
+        ],
 
         "status":
             enrollment.status,

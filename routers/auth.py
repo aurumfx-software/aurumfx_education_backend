@@ -5,7 +5,7 @@ from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from sqlalchemy.orm import Session
 
 from database import SessionLocal
-from database_models import User, Branch
+from database_models import User, Branch, Staff
 
 from schemas.user import (
     UserRegister,
@@ -132,6 +132,7 @@ def login(
     user: UserLogin,
     db: Session = Depends(get_db)
 ):
+    login_identifier = user.staff_code or user.email
 
     # ==========================================
     # FIND USER
@@ -139,9 +140,21 @@ def login(
 
     db_user = (
         db.query(User)
-        .filter(User.email == user.email)
+        .filter(User.email == login_identifier)
         .first()
     )
+
+    if not db_user:
+        db_user = (
+            db.query(User)
+            .join(Staff, Staff.user_id == User.id)
+            .filter(
+                Staff.staff_code == login_identifier.strip().upper(),
+                Staff.status == "Active",
+                User.role == "staff",
+            )
+            .first()
+        )
 
     if not db_user:
         raise HTTPException(
@@ -204,7 +217,14 @@ def login(
         "role": db_user.role,
         "user_id": db_user.id,
         "name": db_user.name,
-        "email": db_user.email
+        "email": db_user.email,
+        "staff_code": (
+            db.query(Staff.staff_code)
+            .filter(Staff.user_id == db_user.id)
+            .scalar()
+            if db_user.role == "staff"
+            else None
+        ),
     }
 
 

@@ -1,5 +1,6 @@
 import os
 import json
+import math
 import uuid
 
 from datetime import date
@@ -18,7 +19,10 @@ from sqlalchemy.orm import Session
 from database import SessionLocal
 from database_models import Course, User, Branch
 
-from schemas.course import CourseResponse
+from schemas.course import (
+    BranchAdminCourseResponse,
+    CourseResponse,
+)
 
 from routers.auth import get_current_user
 
@@ -94,6 +98,116 @@ def validate_installment_details(
         )
 
     return installment_schedule, installment_count
+
+
+def validate_installment_terms(
+    installment_terms: str,
+    installment_count: int,
+    course_price: float,
+    start_date: date,
+    end_date: date,
+):
+    try:
+        terms = json.loads(installment_terms)
+    except json.JSONDecodeError:
+        raise HTTPException(
+            status_code=400,
+            detail="Invalid installment terms JSON",
+        )
+
+    if not isinstance(terms, list):
+        raise HTTPException(
+            status_code=400,
+            detail="Installment terms must be a JSON array",
+        )
+
+    if len(terms) != installment_count:
+        raise HTTPException(
+            status_code=400,
+            detail=(
+                "Installment terms count must match "
+                "installment_count"
+            ),
+        )
+
+    validated_terms = []
+
+    for term_number, term in enumerate(terms, start=1):
+        if not isinstance(term, dict):
+            raise HTTPException(
+                status_code=400,
+                detail=f"Term {term_number} must be an object",
+            )
+
+        amount = term.get("amount")
+        due_date = term.get("due_date")
+
+        if (
+            isinstance(amount, bool)
+            or not isinstance(amount, (int, float))
+            or not math.isfinite(amount)
+            or amount <= 0
+        ):
+            raise HTTPException(
+                status_code=400,
+                detail=(
+                    f"Term {term_number} amount must be "
+                    "a positive number"
+                ),
+            )
+
+        if not isinstance(due_date, str):
+            raise HTTPException(
+                status_code=400,
+                detail=(
+                    f"Term {term_number} due_date must "
+                    "use YYYY-MM-DD format"
+                ),
+            )
+
+        try:
+            parsed_due_date = date.fromisoformat(due_date)
+        except ValueError:
+            raise HTTPException(
+                status_code=400,
+                detail=(
+                    f"Term {term_number} due_date must "
+                    "use YYYY-MM-DD format"
+                ),
+            )
+
+        if not start_date <= parsed_due_date <= end_date:
+            raise HTTPException(
+                status_code=400,
+                detail=(
+                    f"Term {term_number} due_date must be "
+                    "within the course start_date and end_date"
+                ),
+            )
+
+        validated_terms.append(
+            {
+                "term_number": term_number,
+                "amount": float(amount),
+                "due_date": parsed_due_date.isoformat(),
+            }
+        )
+
+    if installment_count > 0:
+        terms_total = round(
+            sum(term["amount"] for term in validated_terms),
+            2,
+        )
+        if terms_total != round(course_price, 2):
+            raise HTTPException(
+                status_code=400,
+                detail=(
+                    "Total course amount and total "
+                    "installment amounts must be equal"
+                ),
+            )
+
+    return validated_terms
 
 
 # ============================================================
@@ -196,7 +310,7 @@ def get_course(
 
 @router.post(
     "/",
-    response_model=CourseResponse,
+    response_model=BranchAdminCourseResponse,
     tags=["Branch Admin Courses"],
 )
 def add_course(
@@ -218,6 +332,7 @@ def add_course(
     # INSTALLMENT DETAILS
     installment_schedule: str = Form("monthly"),
     installment_count: int = Form(0),
+    installment_terms: str = Form("[]"),
 
     # IMAGE
     image: UploadFile = File(...),
@@ -274,6 +389,14 @@ def add_course(
     ) = validate_installment_details(
         installment_schedule=installment_schedule,
         installment_count=installment_count,
+    )
+
+    installment_terms_data = validate_installment_terms(
+        installment_terms=installment_terms,
+        installment_count=installment_count_data,
+        course_price=price,
+        start_date=start_date,
+        end_date=end_date,
     )
 
     # ========================================================
@@ -339,6 +462,7 @@ def add_course(
         # INSTALLMENT DETAILS
         installment_schedule=installment_schedule_data,
         installment_count=installment_count_data,
+        installment_terms=installment_terms_data,
 
         # IMAGE
         image=image_url,
@@ -363,7 +487,7 @@ def add_course(
 
 @router.get(
     "/branch-admin/my-courses",
-    response_model=list[CourseResponse],
+    response_model=list[BranchAdminCourseResponse],
     tags=["Branch Admin Courses"],
 )
 def get_my_courses(
@@ -393,7 +517,7 @@ def get_my_courses(
 
 @router.get(
     "/branch-admin/{course_id}",
-    response_model=CourseResponse,
+    response_model=BranchAdminCourseResponse,
     tags=["Branch Admin Courses"],
 )
 def get_my_course(
@@ -432,7 +556,7 @@ def get_my_course(
 
 @router.put(
     "/branch-admin/{course_id}",
-    response_model=CourseResponse,
+    response_model=BranchAdminCourseResponse,
     tags=["Branch Admin Courses"],
 )
 def update_course(
@@ -456,6 +580,7 @@ def update_course(
     # INSTALLMENT DETAILS
     installment_schedule: str = Form("monthly"),
     installment_count: int = Form(0),
+    installment_terms: str = Form("[]"),
 
     # IMAGE
     image: UploadFile | None = File(None),
@@ -544,6 +669,14 @@ def update_course(
         installment_count=installment_count,
     )
 
+    installment_terms_data = validate_installment_terms(
+        installment_terms=installment_terms,
+        installment_count=installment_count_data,
+        course_price=price,
+        start_date=start_date,
+        end_date=end_date,
+    )
+
     # ========================================================
     # UPDATE COURSE INFORMATION
     # ========================================================
@@ -584,6 +717,10 @@ def update_course(
 
     db_course.installment_count = (
         installment_count_data
+    )
+
+    db_course.installment_terms = (
+        installment_terms_data
     )
 
     # ========================================================

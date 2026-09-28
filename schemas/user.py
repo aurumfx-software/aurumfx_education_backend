@@ -1,7 +1,7 @@
 from datetime import datetime
 from typing import Optional
 
-from pydantic import BaseModel, EmailStr, ConfigDict
+from pydantic import BaseModel, EmailStr, ConfigDict, model_validator
 
 
 class UserRegister(BaseModel):
@@ -17,8 +17,15 @@ class UserRegister(BaseModel):
 
 
 class UserLogin(BaseModel):
-    email: EmailStr
+    email: str | None = None
+    staff_code: str | None = None
     password: str
+
+    @model_validator(mode="after")
+    def require_login_identifier(self):
+        if not self.email and not self.staff_code:
+            raise ValueError("email or staff_code is required")
+        return self
 
     
 class BranchAdminLogin(BaseModel):

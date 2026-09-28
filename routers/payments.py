@@ -3,14 +3,23 @@ import hmac
 import hashlib
 import requests
 
-from datetime import datetime, timezone
+from datetime import date, datetime, timezone
+from dateutil.relativedelta import relativedelta
 
 from fastapi import APIRouter, Depends, HTTPException
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
+from typing import Literal
 from sqlalchemy.orm import Session
 
 from database import SessionLocal
-from database_models import Enrollment, Course, User
+from database_models import (
+    AdmissionPayment,
+    Course,
+    Enrollment,
+    EnrollmentInstallment,
+    RazorpayPaymentOrder,
+    User,
+)
 
 from routers.auth import get_current_user
 
@@ -54,6 +63,8 @@ def get_db():
 
 class CreateOrderRequest(BaseModel):
     course_id: int
+    payment_type: Literal["full", "installment"] = "full"
+    installment_number: int | None = Field(default=None, ge=1)
 
 
 class VerifyPaymentRequest(BaseModel):
@@ -61,6 +72,167 @@ class VerifyPaymentRequest(BaseModel):
     razorpay_order_id: str
     razorpay_payment_id: str
     razorpay_signature: str
+
+
+def ensure_installment_plan(
+    db: Session,
+    enrollment: Enrollment,
+    course: Course,
+):
+    existing_terms = (
+        db.query(EnrollmentInstallment)
+        .filter(EnrollmentInstallment.enrollment_id == enrollment.id)
+        .order_by(EnrollmentInstallment.installment_number.asc())
+        .all()
+    )
+    if existing_terms:
+        return existing_terms
+
+    configured_terms = course.installment_terms or []
+    configured_count = course.installment_count or 0
+    base_date = course.start_date or date.today()
+    if configured_count > 0 and len(configured_terms) == configured_count:
+        term_data = configured_terms
+    else:
+        term_count = max(configured_count, 1)
+        per_term_amount = round(enrollment.total_fee / term_count, 2)
+        term_data = []
+        for number in range(1, term_count + 1):
+            if course.installment_schedule == "weekly":
+                due_date = base_date + relativedelta(weeks=number - 1)
+            else:
+                due_date = base_date + relativedelta(months=number - 1)
+            amount = (
+                round(enrollment.total_fee - per_term_amount * (term_count - 1), 2)
+                if number == term_count
+                else per_term_amount
+            )
+            term_data.append({"amount": amount, "due_date": due_date})
+
+    if round(sum(float(term["amount"]) for term in term_data), 2) != round(
+        enrollment.total_fee, 2
+    ):
+        raise HTTPException(
+            status_code=409,
+            detail="Course installment amounts do not equal the course fee",
+        )
+
+    installments = []
+    for number, term in enumerate(term_data, start=1):
+        due_date = term["due_date"]
+        if isinstance(due_date, str):
+            due_date = date.fromisoformat(due_date)
+        installment = EnrollmentInstallment(
+            enrollment_id=enrollment.id,
+            installment_number=number,
+            amount=round(float(term["amount"]), 2),
+            paid_amount=0,
+            due_date=due_date,
+            status="pending",
+            paid_date=None,
+            cash_amount=0,
+            upi_amount=0,
+        )
+        db.add(installment)
+        installments.append(installment)
+
+    enrollment.installment_schedule = course.installment_schedule
+    enrollment.installment_count = len(installments)
+    enrollment.installment_amount = round(
+        enrollment.total_fee / len(installments), 2
+    )
+    enrollment.total_paid = enrollment.total_paid or 0
+    enrollment.balance_amount = round(
+        enrollment.total_fee - enrollment.total_paid, 2
+    )
+    db.flush()
+    return installments
+
+
+def apply_student_payment(
+    db: Session,
+    enrollment: Enrollment,
+    payment_order: RazorpayPaymentOrder,
+    payment_id: str,
+):
+    payment_amount = round(payment_order.amount, 2)
+    if payment_amount > round(enrollment.balance_amount or 0, 2):
+        raise HTTPException(
+            status_code=409,
+            detail="Enrollment balance changed; payment needs review",
+        )
+
+    if payment_order.installment_id:
+        installments = (
+            db.query(EnrollmentInstallment)
+            .filter(
+                EnrollmentInstallment.id == payment_order.installment_id,
+                EnrollmentInstallment.enrollment_id == enrollment.id,
+            )
+            .with_for_update()
+            .all()
+        )
+    else:
+        installments = (
+            db.query(EnrollmentInstallment)
+            .filter(
+                EnrollmentInstallment.enrollment_id == enrollment.id,
+                EnrollmentInstallment.status != "paid",
+            )
+            .order_by(EnrollmentInstallment.installment_number.asc())
+            .with_for_update()
+            .all()
+        )
+
+    remaining = payment_amount
+    payment_date = date.today()
+    for installment in installments:
+        if remaining <= 0:
+            break
+        term_remaining = round(installment.amount - installment.paid_amount, 2)
+        if term_remaining <= 0:
+            continue
+        amount_for_term = round(min(remaining, term_remaining), 2)
+        installment.paid_amount = round(
+            installment.paid_amount + amount_for_term, 2
+        )
+        installment.status = (
+            "paid" if installment.paid_amount >= installment.amount else "partial"
+        )
+        if installment.status == "paid":
+            installment.paid_amount = installment.amount
+            installment.paid_date = payment_date
+        db.add(
+            AdmissionPayment(
+                enrollment_id=enrollment.id,
+                installment_id=installment.id,
+                installment_number=installment.installment_number,
+                user_id=enrollment.user_id,
+                branch_id=enrollment.branch_id,
+                amount=amount_for_term,
+                cash_amount=0,
+                upi_amount=amount_for_term,
+                payment_date=payment_date,
+                status="received",
+            )
+        )
+        remaining = round(remaining - amount_for_term, 2)
+
+    if remaining > 0:
+        raise HTTPException(
+            status_code=409,
+            detail="Selected installment balance changed; payment needs review",
+        )
+
+    enrollment.total_paid = round((enrollment.total_paid or 0) + payment_amount, 2)
+    enrollment.balance_amount = max(
+        round(enrollment.total_fee - enrollment.total_paid, 2), 0
+    )
+    enrollment.status = "paid" if enrollment.balance_amount == 0 else "pending"
+    enrollment.razorpay_payment_id = payment_id
+    enrollment.paid_at = datetime.now(timezone.utc)
+    payment_order.status = "paid"
+    payment_order.razorpay_payment_id = payment_id
 
 
 # ============================================================
@@ -140,6 +312,23 @@ def create_order(
             detail="Course is not assigned to a branch"
         )
 
+    if (
+        payment_data.payment_type == "installment"
+        and payment_data.installment_number is None
+    ):
+        raise HTTPException(
+            status_code=400,
+            detail="installment_number is required for installment payment",
+        )
+    if (
+        payment_data.payment_type == "full"
+        and payment_data.installment_number is not None
+    ):
+        raise HTTPException(
+            status_code=400,
+            detail="Do not provide installment_number for full payment",
+        )
+
     # ========================================================
     # CHECK EXISTING ENROLLMENT
     # ========================================================
@@ -196,6 +385,10 @@ def create_order(
 
             # Course fee
             total_fee=course.price,
+            total_paid=0,
+            balance_amount=course.price,
+            installment_schedule=course.installment_schedule,
+            installment_count=course.installment_count or 0,
 
             # Payment status
             status="pending",
@@ -224,11 +417,72 @@ def create_order(
     # ========================================================
     # AMOUNT
     #
-    # Razorpay expects amount in paise
+    # Resolve the selected term or full remaining balance.
     # ========================================================
 
+    enrollment.total_paid = enrollment.total_paid or 0
+    enrollment.balance_amount = max(
+        round(enrollment.total_fee - enrollment.total_paid, 2),
+        0,
+    )
+    if enrollment.balance_amount <= 0:
+        db.rollback()
+        raise HTTPException(
+            status_code=400,
+            detail="You are already enrolled in this course",
+        )
+
+    installments = ensure_installment_plan(db, enrollment, course)
+    selected_installment = None
+    if payment_data.payment_type == "installment":
+        selected_installment = next(
+            (
+                term
+                for term in installments
+                if term.installment_number == payment_data.installment_number
+            ),
+            None,
+        )
+        if not selected_installment:
+            db.rollback()
+            raise HTTPException(
+                status_code=404,
+                detail="Installment not found for this enrollment",
+            )
+        if selected_installment.status == "paid":
+            db.rollback()
+            raise HTTPException(
+                status_code=400,
+                detail="This installment is already paid",
+            )
+        payment_amount = round(
+            selected_installment.amount - selected_installment.paid_amount,
+            2,
+        )
+    else:
+        payment_amount = round(enrollment.balance_amount, 2)
+
+    open_order = (
+        db.query(RazorpayPaymentOrder)
+        .filter(
+            RazorpayPaymentOrder.enrollment_id == enrollment.id,
+            RazorpayPaymentOrder.status == "created",
+        )
+        .first()
+    )
+    if open_order:
+        db.rollback()
+        raise HTTPException(
+            status_code=409,
+            detail="A payment order is already in progress for this enrollment",
+        )
+
+    if payment_amount <= 0 or payment_amount > enrollment.balance_amount:
+        db.rollback()
+        raise HTTPException(status_code=400, detail="No valid payment is due")
+
     amount_paise = int(
-        round(enrollment.total_fee * 100)
+        round(payment_amount * 100)
     )
 
     if amount_paise <= 0:
@@ -252,7 +506,11 @@ def create_order(
             "enrollment_id": str(enrollment.id),
             "user_id": str(current_user.id),
             "course_id": str(course.id),
-            "course_title": course.title
+            "course_title": course.title,
+            "payment_type": payment_data.payment_type,
+            "installment_number": str(
+                payment_data.installment_number or ""
+            ),
         }
     }
 
@@ -318,6 +576,17 @@ def create_order(
     # ========================================================
 
     enrollment.razorpay_order_id = razorpay_order_id
+    db.add(
+        RazorpayPaymentOrder(
+            enrollment_id=enrollment.id,
+            installment_id=(
+                selected_installment.id if selected_installment else None
+            ),
+            razorpay_order_id=razorpay_order_id,
+            amount=payment_amount,
+            status="created",
+        )
+    )
 
     # Payment is still pending until verification
     enrollment.status = "pending"
@@ -335,6 +604,10 @@ def create_order(
     db.commit()
 
     db.refresh(enrollment)
+
+    paid_installment_count = sum(
+        term.status == "paid" for term in installments
+    )
 
     # ========================================================
     # RETURN ORDER DETAILS
@@ -360,9 +633,34 @@ def create_order(
         "order_id": razorpay_order_id,
 
         # Amount
-        "amount": enrollment.total_fee,
+        "amount": payment_amount,
         "amount_paise": amount_paise,
         "currency": "INR",
+        "payment_type": payment_data.payment_type,
+        "installment_number": payment_data.installment_number,
+        "installment_due_date": (
+            selected_installment.due_date if selected_installment else None
+        ),
+        "total_fee": enrollment.total_fee,
+        "total_paid": enrollment.total_paid,
+        "balance_amount": enrollment.balance_amount,
+        "installment_count": len(installments),
+        "paid_installment_count": paid_installment_count,
+        "remaining_installment_count": (
+            len(installments) - paid_installment_count
+        ),
+        "installments": [
+            {
+                "installment_id": term.id,
+                "installment_number": term.installment_number,
+                "amount": term.amount,
+                "paid_amount": term.paid_amount,
+                "remaining_amount": round(term.amount - term.paid_amount, 2),
+                "due_date": term.due_date,
+                "status": term.status,
+            }
+            for term in installments
+        ],
 
         # Razorpay public key
         "razorpay_key_id": RAZORPAY_KEY_ID,
@@ -431,131 +729,117 @@ def verify_payment(
             detail="Enrollment not found"
         )
 
-    # ========================================================
-    # ALREADY PAID
-    # ========================================================
+    payment_order = (
+        db.query(RazorpayPaymentOrder)
+        .filter(
+            RazorpayPaymentOrder.enrollment_id == enrollment.id,
+            RazorpayPaymentOrder.razorpay_order_id
+            == payment_data.razorpay_order_id,
+        )
+        .with_for_update()
+        .first()
+    )
 
-    if enrollment.status == "paid":
-
+    if payment_order and payment_order.status == "paid":
         return {
             "success": True,
             "message": "Payment already verified",
-
-            "status": "paid",
-
-            "course_status": enrollment.course_status,
-
             "enrollment_id": enrollment.id,
-
-            "razorpay_order_id": enrollment.razorpay_order_id,
-
-            "razorpay_payment_id": enrollment.razorpay_payment_id,
-
-            "paid_at": enrollment.paid_at
+            "status": enrollment.status,
+            "total_paid": enrollment.total_paid,
+            "balance_amount": enrollment.balance_amount,
+            "razorpay_order_id": payment_order.razorpay_order_id,
+            "razorpay_payment_id": payment_order.razorpay_payment_id,
+            "paid_at": enrollment.paid_at,
         }
 
-    # ========================================================
-    # CHECK ENROLLMENT ORDER ID
-    # ========================================================
+    if not payment_order:
+        if enrollment.razorpay_order_id != payment_data.razorpay_order_id:
+            raise HTTPException(
+                status_code=400,
+                detail="Razorpay order ID does not match this enrollment",
+            )
+        if enrollment.status == "paid" and (enrollment.balance_amount or 0) <= 0:
+            return {
+                "success": True,
+                "message": "Payment already verified",
+                "enrollment_id": enrollment.id,
+                "status": enrollment.status,
+                "razorpay_order_id": enrollment.razorpay_order_id,
+                "razorpay_payment_id": enrollment.razorpay_payment_id,
+                "paid_at": enrollment.paid_at,
+            }
+        enrollment.total_paid = enrollment.total_paid or 0
+        enrollment.balance_amount = max(
+            round(enrollment.total_fee - enrollment.total_paid, 2),
+            0,
+        )
+        payment_order = RazorpayPaymentOrder(
+            enrollment_id=enrollment.id,
+            installment_id=None,
+            razorpay_order_id=payment_data.razorpay_order_id,
+            amount=round(enrollment.balance_amount, 2),
+            status="created",
+        )
+        db.add(payment_order)
+        db.flush()
 
-    if not enrollment.razorpay_order_id:
-
+    if payment_order.status != "created":
         raise HTTPException(
             status_code=400,
-            detail="No Razorpay order found for this enrollment"
+            detail="This Razorpay order cannot be verified again",
         )
-
-    # ========================================================
-    # VERIFY ORDER ID
-    # ========================================================
-
-    if (
-        enrollment.razorpay_order_id
-        != payment_data.razorpay_order_id
-    ):
-
-        raise HTTPException(
-            status_code=400,
-            detail="Razorpay order ID does not match"
-        )
-
-    # ========================================================
-    # CREATE SIGNATURE
-    # ========================================================
 
     generated_signature = hmac.new(
         RAZORPAY_KEY_SECRET.encode("utf-8"),
-
         (
             payment_data.razorpay_order_id
             + "|"
             + payment_data.razorpay_payment_id
         ).encode("utf-8"),
-
-        hashlib.sha256
+        hashlib.sha256,
     ).hexdigest()
-
-    # ========================================================
-    # VERIFY SIGNATURE
-    # ========================================================
-
     if not hmac.compare_digest(
         generated_signature,
-        payment_data.razorpay_signature
+        payment_data.razorpay_signature,
     ):
-
         raise HTTPException(
             status_code=400,
-            detail="Invalid Razorpay payment signature"
+            detail="Invalid Razorpay payment signature",
         )
 
-    # ========================================================
-    # PAYMENT VERIFIED
-    # ========================================================
+    course = db.query(Course).filter(Course.id == enrollment.course_id).first()
+    if not course:
+        raise HTTPException(
+            status_code=404,
+            detail="Course not found for enrollment",
+        )
 
-    enrollment.razorpay_payment_id = (
-        payment_data.razorpay_payment_id
+    enrollment.total_paid = enrollment.total_paid or 0
+    if enrollment.balance_amount is None:
+        enrollment.balance_amount = round(
+            enrollment.total_fee - enrollment.total_paid, 2
+        )
+    ensure_installment_plan(db, enrollment, course)
+    apply_student_payment(
+        db=db,
+        enrollment=enrollment,
+        payment_order=payment_order,
+        payment_id=payment_data.razorpay_payment_id,
     )
 
-    # Payment becomes paid
-    enrollment.status = "paid"
-
-    # Store actual payment date/time
-    enrollment.paid_at = datetime.now(timezone.utc)
-
-    # Course remains pending until
-    # branch admin approves it
-    enrollment.course_status = "pending"
-
-    # ========================================================
-    # SAVE
-    # ========================================================
-
     db.commit()
-
     db.refresh(enrollment)
-
-    # ========================================================
-    # SUCCESS
-    # ========================================================
-
     return {
         "success": True,
-
         "message": "Payment verified successfully",
-
         "enrollment_id": enrollment.id,
-
-        # Payment status
         "status": enrollment.status,
-
-        # Branch approval status
         "course_status": enrollment.course_status,
-
-        "razorpay_order_id": enrollment.razorpay_order_id,
-
-        "razorpay_payment_id": enrollment.razorpay_payment_id,
-
-        # Actual payment date/time
-        "paid_at": enrollment.paid_at
+        "total_fee": enrollment.total_fee,
+        "total_paid": enrollment.total_paid,
+        "balance_amount": enrollment.balance_amount,
+        "razorpay_order_id": payment_order.razorpay_order_id,
+        "razorpay_payment_id": payment_data.razorpay_payment_id,
+        "paid_at": enrollment.paid_at,
     }

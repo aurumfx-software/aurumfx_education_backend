@@ -41,6 +41,11 @@ class BranchAdmissionCreate(BaseModel):
         ge=0
     )
 
+    installment_number: int | None = Field(
+        default=None,
+        ge=1
+    )
+
     payment_date: date | None = None
 
 
@@ -60,6 +65,11 @@ class AdmissionPaymentCreate(BaseModel):
         ge=0
     )
 
+    installment_number: int | None = Field(
+        default=None,
+        ge=1
+    )
+
     payment_date: date | None = None
 
 
@@ -76,6 +86,10 @@ class InstallmentResponse(BaseModel):
     amount: float
 
     paid_amount: float
+
+    remaining_amount: float
+
+    is_due: bool
 
     due_date: date
 
@@ -153,6 +167,10 @@ class BranchAdmissionResponse(BaseModel):
 
     terms_paid: int
     pending_terms: int
+    due_installment_count: int = 0
+
+    installments: list[InstallmentResponse]
+    due_installments: list[InstallmentResponse] = Field(default_factory=list)
 
     status: str
 

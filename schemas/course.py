@@ -1,6 +1,6 @@
 from datetime import date
 
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel, ConfigDict, Field
 
 
 class CurriculumSection(BaseModel):
@@ -43,4 +43,16 @@ class CourseResponse(BaseModel):
 
     model_config = ConfigDict(
         from_attributes=True
+    )
+
+
+class CourseInstallmentTermResponse(BaseModel):
+    term_number: int
+    amount: float
+    due_date: date
+
+
+class BranchAdminCourseResponse(CourseResponse):
+    installment_terms: list[CourseInstallmentTermResponse] | None = Field(
+        default=None
     )

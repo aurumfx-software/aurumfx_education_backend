@@ -117,6 +117,44 @@ try:
             )
         )
 
+        conn.execute(
+            text(
+                "ALTER TABLE courses "
+                "ADD COLUMN IF NOT EXISTS installment_terms JSONB;"
+            )
+        )
+
+        conn.execute(
+            text(
+                "ALTER TABLE staff "
+                "ADD COLUMN IF NOT EXISTS staff_code VARCHAR;"
+            )
+        )
+
+        conn.execute(
+            text(
+                "UPDATE staff "
+                "SET staff_code = 'STF-' || branch_id || '-' || "
+                "upper(substr(md5(random()::text || id::text), 1, 10)) "
+                "WHERE staff_code IS NULL;"
+            )
+        )
+
+        conn.execute(
+            text(
+                "CREATE UNIQUE INDEX IF NOT EXISTS ix_staff_staff_code "
+                "ON staff (staff_code);"
+            )
+        )
+
+        conn.execute(
+            text(
+                "INSERT INTO staff_courses (staff_id, course_id) "
+                "SELECT id, course_id FROM staff "
+                "ON CONFLICT (staff_id, course_id) DO NOTHING;"
+            )
+        )
+
         conn.commit()
 
 except Exception as e:

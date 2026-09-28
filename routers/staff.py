@@ -1,8 +1,10 @@
+import uuid
+
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 
 from database import SessionLocal
-from database_models import Staff, User, Course
+from database_models import Staff, StaffCourse, User, Course
 
 from schemas.staff import (
     StaffCreate,
@@ -31,6 +33,79 @@ def get_db():
         yield db
     finally:
         db.close()
+
+
+def get_selected_courses(db: Session, staff_data, branch_id: int):
+    if staff_data.course_ids is not None:
+        course_ids = staff_data.course_ids
+    elif staff_data.course_id is not None:
+        course_ids = [staff_data.course_id]
+    else:
+        raise HTTPException(
+            status_code=400,
+            detail="Select at least one course for the staff member",
+        )
+
+    course_ids = list(dict.fromkeys(course_ids))
+    if not course_ids:
+        raise HTTPException(
+            status_code=400,
+            detail="Select at least one course for the staff member",
+        )
+    courses = (
+        db.query(Course)
+        .filter(
+            Course.id.in_(course_ids),
+            Course.branch_id == branch_id,
+            Course.is_active == True,
+        )
+        .all()
+    )
+    if len(courses) != len(course_ids):
+        raise HTTPException(
+            status_code=404,
+            detail="One or more selected courses were not found in your branch",
+        )
+    course_by_id = {course.id: course for course in courses}
+    return [course_by_id[course_id] for course_id in course_ids]
+
+
+def staff_course_details(db: Session, staff: Staff):
+    courses = (
+        db.query(Course)
+        .join(StaffCourse, StaffCourse.course_id == Course.id)
+        .filter(StaffCourse.staff_id == staff.id)
+        .order_by(Course.title.asc())
+        .all()
+    )
+    if not courses:
+        primary_course = db.query(Course).filter(Course.id == staff.course_id).first()
+        if primary_course:
+            courses = [primary_course]
+    primary_course = db.query(Course).filter(Course.id == staff.course_id).first()
+    return {
+        "course_id": staff.course_id,
+        "course_name": primary_course.title if primary_course else "",
+        "course_ids": [course.id for course in courses],
+        "course_names": [course.title for course in courses],
+    }
+
+
+def build_staff_response(db: Session, staff: Staff):
+    return {
+        "id": staff.id,
+        "user_id": staff.user_id,
+        "branch_id": staff.branch_id,
+        "staff_code": staff.staff_code,
+        "name": staff.name,
+        "email": staff.email,
+        "phone": staff.phone,
+        **staff_course_details(db, staff),
+        "address": staff.address,
+        "salary": staff.salary,
+        "status": staff.status,
+        "created_at": staff.created_at,
+    }
 
 
 # ==========================================
@@ -82,24 +157,14 @@ def create_staff(
         )
 
     # --------------------------------------
-    # CHECK COURSE
+    # CHECK COURSES
     # --------------------------------------
 
-    course = (
-        db.query(Course)
-        .filter(
-            Course.id == staff_data.course_id,
-            Course.branch_id == current_user.branch_id,
-            Course.is_active == True
-        )
-        .first()
+    courses = get_selected_courses(
+        db,
+        staff_data,
+        current_user.branch_id,
     )
-
-    if not course:
-        raise HTTPException(
-            status_code=404,
-            detail="Course not found in your branch"
-        )
 
     # --------------------------------------
     # CREATE USER ACCOUNT
@@ -128,7 +193,11 @@ def create_staff(
     new_staff = Staff(
         user_id=new_user.id,
         branch_id=current_user.branch_id,
-        course_id=staff_data.course_id,
+        course_id=courses[0].id,
+        staff_code=(
+            f"STF-{current_user.branch_id}-"
+            f"{uuid.uuid4().hex[:10].upper()}"
+        ),
 
         name=staff_data.name,
         email=staff_data.email,
@@ -142,31 +211,19 @@ def create_staff(
     )
 
     db.add(new_staff)
+    db.flush()
+    db.add_all(
+        [
+            StaffCourse(staff_id=new_staff.id, course_id=course.id)
+            for course in courses
+        ]
+    )
 
     db.commit()
 
     db.refresh(new_staff)
 
-    return {
-        "id": new_staff.id,
-        "user_id": new_staff.user_id,
-        "branch_id": new_staff.branch_id,
-
-        "name": new_staff.name,
-        "email": new_staff.email,
-        "phone": new_staff.phone,
-
-        "course_id": course.id,
-        "course_name": course.title,
-
-        "address": new_staff.address,
-
-        "salary": new_staff.salary,
-
-        "status": new_staff.status,
-
-        "created_at": new_staff.created_at
-    }
+    return build_staff_response(db, new_staff)
 
 
 # ==========================================
@@ -258,11 +315,7 @@ def get_all_staff(
     # --------------------------------------
 
     results = (
-        db.query(Staff, Course)
-        .join(
-            Course,
-            Staff.course_id == Course.id
-        )
+        db.query(Staff)
         .filter(
             Staff.branch_id == current_user.branch_id,
             Staff.status == "Active"
@@ -274,27 +327,8 @@ def get_all_staff(
     )
 
     return [
-        {
-            "id": staff.id,
-            "user_id": staff.user_id,
-            "branch_id": staff.branch_id,
-
-            "name": staff.name,
-            "email": staff.email,
-            "phone": staff.phone,
-
-            "course_id": course.id,
-            "course_name": course.title,
-
-            "address": staff.address,
-
-            "salary": staff.salary,
-
-            "status": staff.status,
-
-            "created_at": staff.created_at
-        }
-        for staff, course in results
+        build_staff_response(db, staff)
+        for staff in results
     ]
 
 
@@ -333,12 +367,8 @@ def get_staff(
     # GET ACTIVE STAFF ONLY
     # --------------------------------------
 
-    result = (
-        db.query(Staff, Course)
-        .join(
-            Course,
-            Staff.course_id == Course.id
-        )
+    staff = (
+        db.query(Staff)
         .filter(
             Staff.id == staff_id,
             Staff.branch_id == current_user.branch_id,
@@ -347,34 +377,13 @@ def get_staff(
         .first()
     )
 
-    if not result:
+    if not staff:
         raise HTTPException(
             status_code=404,
             detail="Staff not found"
         )
 
-    staff, course = result
-
-    return {
-        "id": staff.id,
-        "user_id": staff.user_id,
-        "branch_id": staff.branch_id,
-
-        "name": staff.name,
-        "email": staff.email,
-        "phone": staff.phone,
-
-        "course_id": course.id,
-        "course_name": course.title,
-
-        "address": staff.address,
-
-        "salary": staff.salary,
-
-        "status": staff.status,
-
-        "created_at": staff.created_at
-    }
+    return build_staff_response(db, staff)
 
 
 # ==========================================
@@ -469,23 +478,15 @@ def update_staff(
         )
 
     # --------------------------------------
-    # CHECK COURSE
+    # CHECK COURSES
     # --------------------------------------
 
-    course = (
-        db.query(Course)
-        .filter(
-            Course.id == staff_data.course_id,
-            Course.branch_id == current_user.branch_id,
-            Course.is_active == True
-        )
-        .first()
-    )
-
-    if not course:
-        raise HTTPException(
-            status_code=404,
-            detail="Course not found in your branch"
+    courses = None
+    if staff_data.course_ids is not None or staff_data.course_id is not None:
+        courses = get_selected_courses(
+            db,
+            staff_data,
+            current_user.branch_id,
         )
 
     # --------------------------------------
@@ -509,7 +510,17 @@ def update_staff(
     staff.name = staff_data.name
     staff.email = staff_data.email
     staff.phone = staff_data.phone
-    staff.course_id = staff_data.course_id
+    if courses is not None:
+        staff.course_id = courses[0].id
+        db.query(StaffCourse).filter(
+            StaffCourse.staff_id == staff.id
+        ).delete(synchronize_session=False)
+        db.add_all(
+            [
+                StaffCourse(staff_id=staff.id, course_id=course.id)
+                for course in courses
+            ]
+        )
     staff.address = staff_data.address
 
     # UPDATE SALARY
@@ -519,26 +530,7 @@ def update_staff(
 
     db.refresh(staff)
 
-    return {
-        "id": staff.id,
-        "user_id": staff.user_id,
-        "branch_id": staff.branch_id,
-
-        "name": staff.name,
-        "email": staff.email,
-        "phone": staff.phone,
-
-        "course_id": course.id,
-        "course_name": course.title,
-
-        "address": staff.address,
-
-        "salary": staff.salary,
-
-        "status": staff.status,
-
-        "created_at": staff.created_at
-    }
+    return build_staff_response(db, staff)
 
 
 # ==========================================

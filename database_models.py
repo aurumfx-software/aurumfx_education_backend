@@ -1122,6 +1122,11 @@ class Course(Base):
         nullable=True
     )
 
+    installment_terms = Column(
+        JSONB,
+        nullable=True
+    )
+
     # ========================================================
     # STATUS
     # ========================================================
@@ -1286,7 +1291,6 @@ class Announcement(Base):
         server_default=func.now()
     )
 
-
 # ============================================================
 # ENROLLMENT
 # ============================================================
@@ -1333,6 +1337,16 @@ class Enrollment(Base):
         Integer,
         ForeignKey("branches.id"),
         nullable=False
+    )
+
+    # ========================================================
+    # CREATED BY BRANCH ADMIN
+    # ========================================================
+
+    created_by_branch_admin_id = Column(
+        Integer,
+        ForeignKey("users.id"),
+        nullable=True
     )
 
     # ========================================================
@@ -1480,7 +1494,6 @@ class Enrollment(Base):
         DateTime(timezone=True),
         server_default=func.now()
     )
-
 
 # ============================================================
 # ENROLLMENT INSTALLMENT
@@ -1706,6 +1719,61 @@ class AdmissionPayment(Base):
 
 
 # ============================================================
+# RAZORPAY PAYMENT ORDER
+# ============================================================
+
+class RazorpayPaymentOrder(Base):
+    __tablename__ = "razorpay_payment_orders"
+
+    id = Column(
+        Integer,
+        primary_key=True,
+        index=True
+    )
+
+    enrollment_id = Column(
+        Integer,
+        ForeignKey("enrollments.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True
+    )
+
+    installment_id = Column(
+        Integer,
+        ForeignKey("enrollment_installments.id", ondelete="SET NULL"),
+        nullable=True
+    )
+
+    razorpay_order_id = Column(
+        String,
+        nullable=False,
+        unique=True,
+        index=True
+    )
+
+    amount = Column(
+        Float,
+        nullable=False
+    )
+
+    status = Column(
+        String,
+        default="created",
+        nullable=False
+    )
+
+    razorpay_payment_id = Column(
+        String,
+        nullable=True
+    )
+
+    created_at = Column(
+        DateTime(timezone=True),
+        server_default=func.now()
+    )
+
+
+# ============================================================
 # STAFF
 # ============================================================
 
@@ -1729,6 +1797,13 @@ class Staff(Base):
         Integer,
         ForeignKey("branches.id"),
         nullable=False
+    )
+
+    staff_code = Column(
+        String,
+        nullable=True,
+        unique=True,
+        index=True
     )
 
     course_id = Column(
@@ -1771,6 +1846,41 @@ class Staff(Base):
     created_at = Column(
         DateTime(timezone=True),
         server_default=func.now()
+    )
+
+
+# ============================================================
+# STAFF COURSE ASSIGNMENTS
+# ============================================================
+
+class StaffCourse(Base):
+    __tablename__ = "staff_courses"
+    __table_args__ = (
+        UniqueConstraint(
+            "staff_id",
+            "course_id",
+            name="uq_staff_course_assignment",
+        ),
+    )
+
+    id = Column(
+        Integer,
+        primary_key=True,
+        index=True
+    )
+
+    staff_id = Column(
+        Integer,
+        ForeignKey("staff.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True
+    )
+
+    course_id = Column(
+        Integer,
+        ForeignKey("courses.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True
     )
 
 
