@@ -1155,6 +1155,13 @@ class Enquiry(Base):
         index=True
     )
 
+    branch_id = Column(
+        Integer,
+        ForeignKey("branches.id"),
+        nullable=True,
+        index=True
+    )
+
     name = Column(
         String,
         nullable=False
@@ -1166,11 +1173,6 @@ class Enquiry(Base):
     )
 
     phone = Column(
-        String,
-        nullable=True
-    )
-
-    parents_phone = Column(
         String,
         nullable=True
     )

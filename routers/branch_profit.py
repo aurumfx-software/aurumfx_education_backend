@@ -403,6 +403,7 @@
 from datetime import date as date_type, datetime, time, timedelta
 
 from fastapi import APIRouter, Depends, HTTPException, Query
+from sqlalchemy import and_, func, or_
 from sqlalchemy.orm import Session
 
 from database import SessionLocal
@@ -410,7 +411,9 @@ from database_models import (
     User,
     Branch,
     Course,
-    Enrollment
+    Enrollment,
+    AdmissionPayment,
+    EnrollmentInstallment,
 )
 
 from routers.auth import get_current_user
@@ -481,9 +484,26 @@ def get_branch_admin(
 # ============================================================
 
 def enrollment_to_dict(
+    db: Session,
     enrollment: Enrollment,
-    course: Course
+    course: Course,
+    amount_paid_on_date: float,
 ):
+    installments = (
+        db.query(EnrollmentInstallment)
+        .filter(EnrollmentInstallment.enrollment_id == enrollment.id)
+        .order_by(EnrollmentInstallment.installment_number.asc())
+        .all()
+    )
+    paid_installment_count = sum(
+        installment.status == "paid" for installment in installments
+    )
+    due_installments = [
+        installment
+        for installment in installments
+        if installment.due_date <= date_type.today()
+        and installment.amount - installment.paid_amount > 0
+    ]
 
     return {
         # ----------------------------------------------------
@@ -529,6 +549,50 @@ def enrollment_to_dict(
             enrollment.total_fee
         ),
 
+        "total_paid": float(enrollment.total_paid or 0),
+
+        "amount_paid_on_date": float(amount_paid_on_date),
+
+        "balance_amount": max(
+            round(
+                enrollment.balance_amount
+                if enrollment.balance_amount is not None
+                else enrollment.total_fee - (enrollment.total_paid or 0),
+                2,
+            ),
+            0,
+        ),
+
+        "installment_count": len(installments),
+
+        "paid_installment_count": paid_installment_count,
+
+        "remaining_installment_count": (
+            len(installments) - paid_installment_count
+        ),
+
+        "due_installment_count": len(due_installments),
+
+        "installments": [
+            {
+                "installment_id": installment.id,
+                "installment_number": installment.installment_number,
+                "amount": installment.amount,
+                "paid_amount": installment.paid_amount,
+                "remaining_amount": round(
+                    installment.amount - installment.paid_amount, 2
+                ),
+                "due_date": installment.due_date,
+                "is_due": (
+                    installment.due_date <= date_type.today()
+                    and installment.amount - installment.paid_amount > 0
+                ),
+                "status": installment.status,
+                "paid_date": installment.paid_date,
+            }
+            for installment in installments
+        ],
+
         "status": enrollment.status,
 
         "course_status": enrollment.course_status,
@@ -553,6 +617,58 @@ def enrollment_to_dict(
 
         "paid_at": enrollment.paid_at
     }
+
+
+def get_paid_enrollment_records(
+    db: Session,
+    branch_id: int,
+    payment_date: date_type,
+):
+    start_of_day = datetime.combine(payment_date, time.min)
+    end_of_day = start_of_day + timedelta(days=1)
+    daily_payments = (
+        db.query(
+            AdmissionPayment.enrollment_id.label("enrollment_id"),
+            func.sum(AdmissionPayment.amount).label("amount_paid_on_date"),
+        )
+        .filter(
+            AdmissionPayment.branch_id == branch_id,
+            AdmissionPayment.payment_date == payment_date,
+            AdmissionPayment.status == "received",
+        )
+        .group_by(AdmissionPayment.enrollment_id)
+        .subquery()
+    )
+
+    return (
+        db.query(
+            Enrollment,
+            Course,
+            func.coalesce(
+                daily_payments.c.amount_paid_on_date,
+                Enrollment.total_fee,
+            ).label("amount_paid_on_date"),
+        )
+        .join(Course, Course.id == Enrollment.course_id)
+        .outerjoin(
+            daily_payments,
+            daily_payments.c.enrollment_id == Enrollment.id,
+        )
+        .filter(
+            Enrollment.branch_id == branch_id,
+            Enrollment.course_status == "approved",
+            or_(
+                daily_payments.c.enrollment_id.isnot(None),
+                and_(
+                    Enrollment.status == "paid",
+                    Enrollment.paid_at >= start_of_day,
+                    Enrollment.paid_at < end_of_day,
+                ),
+            ),
+        )
+        .order_by(Enrollment.paid_at.desc())
+        .all()
+    )
 
 
 # ============================================================
@@ -596,50 +712,13 @@ def get_branch_profit(
         date = date_type.today()
 
     # ========================================================
-    # START OF SELECTED DATE
+    # GET APPROVED ENROLLMENTS WITH PAYMENTS ON SELECTED DATE
     # ========================================================
 
-    start_of_day = datetime.combine(
-        date,
-        time.min
-    )
-
-    # ========================================================
-    # START OF NEXT DAY
-    # ========================================================
-
-    end_of_day = (
-        start_of_day + timedelta(days=1)
-    )
-
-    # ========================================================
-    # GET PAID + APPROVED ENROLLMENTS
-    # ========================================================
-
-    enrollment_records = (
-        db.query(
-            Enrollment,
-            Course
-        )
-        .join(
-            Course,
-            Course.id == Enrollment.course_id
-        )
-        .filter(
-            Enrollment.branch_id == branch_id,
-
-            Enrollment.status == "paid",
-
-            Enrollment.course_status == "approved",
-
-            Enrollment.paid_at >= start_of_day,
-
-            Enrollment.paid_at < end_of_day
-        )
-        .order_by(
-            Enrollment.paid_at.desc()
-        )
-        .all()
+    enrollment_records = get_paid_enrollment_records(
+        db=db,
+        branch_id=branch_id,
+        payment_date=date,
     )
 
     # ========================================================
@@ -647,8 +726,8 @@ def get_branch_profit(
     # ========================================================
 
     total_profit = sum(
-        enrollment.total_fee
-        for enrollment, course
+        amount_paid_on_date
+        for enrollment, course, amount_paid_on_date
         in enrollment_records
     )
 
@@ -669,10 +748,12 @@ def get_branch_profit(
 
         "enrollments": [
             enrollment_to_dict(
+                db,
                 enrollment,
-                course
+                course,
+                amount_paid_on_date,
             )
-            for enrollment, course
+            for enrollment, course, amount_paid_on_date
             in enrollment_records
         ]
     }
@@ -713,50 +794,13 @@ def get_today_profit(
     today = date_type.today()
 
     # ========================================================
-    # START OF TODAY
+    # GET APPROVED ENROLLMENTS WITH PAYMENTS TODAY
     # ========================================================
 
-    start_of_day = datetime.combine(
-        today,
-        time.min
-    )
-
-    # ========================================================
-    # START OF TOMORROW
-    # ========================================================
-
-    end_of_day = (
-        start_of_day + timedelta(days=1)
-    )
-
-    # ========================================================
-    # GET TODAY'S PAID + APPROVED ENROLLMENTS
-    # ========================================================
-
-    enrollment_records = (
-        db.query(
-            Enrollment,
-            Course
-        )
-        .join(
-            Course,
-            Course.id == Enrollment.course_id
-        )
-        .filter(
-            Enrollment.branch_id == branch_id,
-
-            Enrollment.status == "paid",
-
-            Enrollment.course_status == "approved",
-
-            Enrollment.paid_at >= start_of_day,
-
-            Enrollment.paid_at < end_of_day
-        )
-        .order_by(
-            Enrollment.paid_at.desc()
-        )
-        .all()
+    enrollment_records = get_paid_enrollment_records(
+        db=db,
+        branch_id=branch_id,
+        payment_date=today,
     )
 
     # ========================================================
@@ -764,8 +808,8 @@ def get_today_profit(
     # ========================================================
 
     today_profit = sum(
-        enrollment.total_fee
-        for enrollment, course
+        amount_paid_on_date
+        for enrollment, course, amount_paid_on_date
         in enrollment_records
     )
 
@@ -786,10 +830,12 @@ def get_today_profit(
 
         "enrollments": [
             enrollment_to_dict(
+                db,
                 enrollment,
-                course
+                course,
+                amount_paid_on_date,
             )
-            for enrollment, course
+            for enrollment, course, amount_paid_on_date
             in enrollment_records
         ]
     }

@@ -91,6 +91,14 @@ try:
             )
         )
 
+        conn.execute(
+            text(
+                "ALTER TABLE enquiries "
+                "ADD COLUMN IF NOT EXISTS branch_id INTEGER "
+                "REFERENCES branches(id);"
+            )
+        )
+
         # --------------------------------------
         # ENROLLMENTS
         # --------------------------------------

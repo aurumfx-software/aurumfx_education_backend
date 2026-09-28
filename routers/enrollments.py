@@ -804,12 +804,18 @@ def get_branch_admin_purchases(
             "name": student.name,
             "email": student.email,
             "phone": student.phone,
+            "parent_name": enrollment.parent_name,
+            "parent_phone": enrollment.parent_phone,
+            "highest_qualification": enrollment.highest_qualification,
+            "address": enrollment.address,
 
             "course_title": enrollment.course_title,
             "course_image": course.image,
             "course_duration": course.duration,
 
             "amount": enrollment.total_fee,
+            "total_fee": enrollment.total_fee,
+            **enrollment_payment_summary(db, enrollment),
 
             # Payment status
             "payment_status": enrollment.status,
@@ -905,12 +911,18 @@ def get_pending_purchases(
             "name": student.name,
             "email": student.email,
             "phone": student.phone,
+            "parent_name": enrollment.parent_name,
+            "parent_phone": enrollment.parent_phone,
+            "highest_qualification": enrollment.highest_qualification,
+            "address": enrollment.address,
 
             "course_title": enrollment.course_title,
             "course_image": course.image,
             "course_duration": course.duration,
 
             "amount": enrollment.total_fee,
+            "total_fee": enrollment.total_fee,
+            **enrollment_payment_summary(db, enrollment),
 
             "payment_status": enrollment.status,
             "course_status": enrollment.course_status,
@@ -985,12 +997,18 @@ def get_approved_purchases(
             "name": student.name,
             "email": student.email,
             "phone": student.phone,
+            "parent_name": enrollment.parent_name,
+            "parent_phone": enrollment.parent_phone,
+            "highest_qualification": enrollment.highest_qualification,
+            "address": enrollment.address,
 
             "course_title": enrollment.course_title,
             "course_image": course.image,
             "course_duration": course.duration,
 
             "amount": enrollment.total_fee,
+            "total_fee": enrollment.total_fee,
+            **enrollment_payment_summary(db, enrollment),
 
             "payment_status": enrollment.status,
             "course_status": enrollment.course_status,
