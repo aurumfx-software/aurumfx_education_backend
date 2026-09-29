@@ -12,7 +12,8 @@ from schemas.user import (
     UserLogin,
     UserResponse,
     Changepassword,
-    BranchAdminLogin
+    BranchAdminLogin,
+    SuperAdminLogin,
 )
 
 from utils.password import hash_password, verify_password
@@ -237,7 +238,7 @@ def login(
     tags=["Super Admin"]
 )
 def admin_login(
-    user: UserLogin,
+    user: SuperAdminLogin,
     db: Session = Depends(get_db)
 ):
 

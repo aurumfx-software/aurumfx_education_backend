@@ -12,16 +12,24 @@ from routers import (
     auth,
     courses,
     enquiries,
+    super_admin_enquiries,
     settings,
     enrollments,
+    super_admin_enrollments,
     announcements,
+    super_admin_branch_announcements,
     profile,
     branches,
     branch_announcements,
     payments,
     staff,
+    super_admin_staff,
+    super_admin_courses,
     branch_dashboard,
+    super_admin_dashboard,
     branch_profit,
+    super_admin_branch_profit,
+    super_admin_attendance,
     staff_attendance,
     branch_admin_attendance,
     messages,
@@ -242,13 +250,21 @@ app.include_router(auth.router)
 
 app.include_router(courses.router)
 
+app.include_router(super_admin_courses.router)
+
 app.include_router(enquiries.router)
+
+app.include_router(super_admin_enquiries.router)
 
 app.include_router(settings.router)
 
 app.include_router(enrollments.router)
 
+app.include_router(super_admin_enrollments.router)
+
 app.include_router(announcements.router)
+
+app.include_router(super_admin_branch_announcements.router)
 
 app.include_router(profile.router)
 
@@ -265,11 +281,20 @@ app.include_router(payments.router)
 # Branch admin staff routes
 app.include_router(staff.router)
 
+# Super admin staff routes
+app.include_router(super_admin_staff.router)
+
 # Branch admin dashboard routes
 app.include_router(branch_dashboard.router)
 
+app.include_router(super_admin_dashboard.router)
+
 # Branch profit routes
 app.include_router(branch_profit.router)
+
+app.include_router(super_admin_branch_profit.router)
+
+app.include_router(super_admin_attendance.router)
 
 # Branch admin staff attendance routes
 app.include_router(staff_attendance.router)
