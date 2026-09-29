@@ -1,6 +1,6 @@
 from datetime import date
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.orm import Session
 from sqlalchemy import func, and_
 
@@ -8,7 +8,9 @@ from database import SessionLocal
 from database_models import (
     Enrollment,
     EnrollmentInstallment,
+    AdmissionPayment,
     RazorpayPaymentOrder,
+    Branch,
     Course,
     User,
 )
@@ -19,7 +21,7 @@ from schemas.enrollment import (
     BranchAdminEnrollmentUpdate,
 )
 
-from routers.auth import get_current_user
+from routers.auth import get_current_user, get_current_super_admin
 
 
 router = APIRouter(
@@ -70,6 +72,8 @@ def enrollment_payment_summary(db: Session, enrollment: Enrollment):
             installment_count - paid_installment_count
         ),
         "due_installment_count": len(due_installments),
+        "branch_approval_status": enrollment.branch_approval_status,
+        "super_admin_approval_status": enrollment.super_admin_approval_status,
         "installments": [
             {
                 "installment_id": installment.id,
@@ -90,6 +94,18 @@ def enrollment_payment_summary(db: Session, enrollment: Enrollment):
             for installment in installments
         ],
     }
+
+
+def enrollment_payment_history(db: Session, enrollment: Enrollment):
+    return (
+        db.query(AdmissionPayment)
+        .filter(AdmissionPayment.enrollment_id == enrollment.id)
+        .order_by(
+            AdmissionPayment.payment_date.asc(),
+            AdmissionPayment.id.asc(),
+        )
+        .all()
+    )
 
 
 def update_enrollment_for_branch_admin(
@@ -194,16 +210,22 @@ def update_enrollment_for_branch_admin(
             term["installment_number"]: term for term in submitted_terms
         }
         for number, term in current_by_number.items():
-            if term.paid_amount > 0:
-                submitted = submitted_by_number.get(number)
-                if (
-                    submitted is None
-                    or round(submitted["amount"], 2) != round(term.amount, 2)
-                    or submitted["due_date"] != term.due_date
-                ):
+            submitted = submitted_by_number.get(number)
+            if term.paid_amount > 0 and submitted is None:
+                raise HTTPException(
+                    status_code=400,
+                    detail=f"Paid installment {number} cannot be removed",
+                )
+
+            if submitted is not None:
+                new_amount = round(submitted["amount"], 2)
+                if new_amount < round(term.paid_amount, 2):
                     raise HTTPException(
                         status_code=400,
-                        detail=f"Paid or partially paid installment {number} cannot be changed or removed",
+                        detail=(
+                            f"Installment {number} amount cannot be less than the "
+                            f"already paid amount ₹{term.paid_amount:.2f}"
+                        ),
                     )
 
         terms_total = round(sum(term["amount"] for term in submitted_terms), 2)
@@ -241,6 +263,11 @@ def update_enrollment_for_branch_admin(
                 )
         for number, term in current_by_number.items():
             if number not in submitted_by_number:
+                if term.paid_amount > 0:
+                    raise HTTPException(
+                        status_code=400,
+                        detail=f"Paid installment {number} cannot be deleted",
+                    )
                 db.delete(term)
 
         enrollment.installment_count = len(submitted_terms)
@@ -286,6 +313,7 @@ def update_enrollment_for_branch_admin(
         "razorpay_payment_id": enrollment.razorpay_payment_id,
         "created_at": enrollment.created_at,
         **enrollment_payment_summary(db, enrollment),
+        "payments": enrollment_payment_history(db, enrollment),
     }
 
 
@@ -351,6 +379,7 @@ def get_my_enrollments(
 
             "total_fee": enrollment.total_fee,
             **enrollment_payment_summary(db, enrollment),
+            "payments": enrollment_payment_history(db, enrollment),
 
             # Payment status
             "status": enrollment.status,
@@ -506,6 +535,7 @@ def get_branch_admin_enrollments(
 
             "total_fee": enrollment.total_fee,
             **enrollment_payment_summary(db, enrollment),
+            "payments": enrollment_payment_history(db, enrollment),
 
             # Payment status
             "status": enrollment.status,
@@ -613,6 +643,7 @@ def get_branch_admin_course_enrollments(
 
             "total_fee": enrollment.total_fee,
             **enrollment_payment_summary(db, enrollment),
+            "payments": enrollment_payment_history(db, enrollment),
 
             # Payment status
             "status": enrollment.status,
@@ -894,7 +925,7 @@ def get_pending_purchases(
         .filter(
             Enrollment.branch_id == current_user.branch_id,
             Enrollment.status == "paid",
-            Enrollment.course_status == "pending"
+            Enrollment.branch_approval_status == "pending"
         )
         .order_by(
             Enrollment.created_at.desc()
@@ -926,6 +957,8 @@ def get_pending_purchases(
 
             "payment_status": enrollment.status,
             "course_status": enrollment.course_status,
+            "branch_approval_status": enrollment.branch_approval_status,
+            "super_admin_approval_status": enrollment.super_admin_approval_status,
 
             "razorpay_order_id": enrollment.razorpay_order_id,
             "razorpay_payment_id": enrollment.razorpay_payment_id,
@@ -980,7 +1013,7 @@ def get_approved_purchases(
         .filter(
             Enrollment.branch_id == current_user.branch_id,
             Enrollment.status == "paid",
-            Enrollment.course_status == "approved"
+            Enrollment.branch_approval_status == "approved"
         )
         .order_by(
             Enrollment.created_at.desc()
@@ -1072,27 +1105,228 @@ def approve_purchase(
             detail="Payment has not been completed"
         )
 
-    # Already approved
-    if enrollment.course_status == "approved":
+    if enrollment.branch_approval_status == "approved":
         raise HTTPException(
             status_code=400,
-            detail="Course is already approved"
+            detail="Branch has already approved this enrollment"
         )
 
-    # Approve course
-    enrollment.course_status = "approved"
+    enrollment.branch_approval_status = "approved"
+    enrollment.super_admin_approval_status = "pending"
+    enrollment.course_status = "partially_approved"
 
     db.commit()
     db.refresh(enrollment)
 
     return {
         "success": True,
-        "message": "Course purchase approved successfully",
+        "message": "Branch approval saved; super-admin approval is required",
 
         "enrollment_id": enrollment.id,
 
         "payment_status": enrollment.status,
         "course_status": enrollment.course_status,
+        "branch_approval_status": enrollment.branch_approval_status,
+        "super_admin_approval_status": enrollment.super_admin_approval_status,
 
         "razorpay_payment_id": enrollment.razorpay_payment_id
+    }
+
+
+def super_admin_purchase_record(
+    db: Session,
+    enrollment: Enrollment,
+    student: User,
+    course: Course,
+    branch_name: str,
+):
+    return {
+        "enrollment_id": enrollment.id,
+        "user_id": enrollment.user_id,
+        "course_id": enrollment.course_id,
+        "branch_id": enrollment.branch_id,
+        "branch_name": branch_name,
+        "name": enrollment.name or student.name,
+        "email": enrollment.email or student.email,
+        "phone": enrollment.phone or student.phone,
+        "parent_name": enrollment.parent_name,
+        "parent_phone": enrollment.parent_phone,
+        "highest_qualification": enrollment.highest_qualification,
+        "address": enrollment.address,
+        "course_title": enrollment.course_title or course.title,
+        "course_image": course.image,
+        "course_duration": course.duration,
+        "total_fee": enrollment.total_fee,
+        "amount": enrollment.total_fee,
+        **enrollment_payment_summary(db, enrollment),
+        "payment_status": enrollment.status,
+        "course_status": enrollment.course_status,
+        "branch_approval_status": enrollment.branch_approval_status,
+        "super_admin_approval_status": enrollment.super_admin_approval_status,
+        "razorpay_order_id": enrollment.razorpay_order_id,
+        "razorpay_payment_id": enrollment.razorpay_payment_id,
+        "created_at": enrollment.created_at,
+    }
+
+
+def get_super_admin_purchase_rows(
+    db: Session,
+    branch_id: int | None,
+    queue: str,
+):
+    if branch_id is not None:
+        branch = db.query(Branch).filter(Branch.id == branch_id).first()
+        if not branch:
+            raise HTTPException(status_code=404, detail="Branch not found")
+
+    query = (
+        db.query(Enrollment, User, Course, Branch.name)
+        .join(User, Enrollment.user_id == User.id)
+        .join(Course, Enrollment.course_id == Course.id)
+        .join(Branch, Enrollment.branch_id == Branch.id)
+    )
+    if branch_id is not None:
+        query = query.filter(Enrollment.branch_id == branch_id)
+
+    if queue == "pending":
+        query = query.filter(
+            Enrollment.status == "paid",
+            Enrollment.branch_approval_status == "approved",
+            Enrollment.super_admin_approval_status == "pending",
+        )
+    elif queue == "approved":
+        query = query.filter(
+            Enrollment.status == "paid",
+            Enrollment.super_admin_approval_status == "approved",
+        )
+    else:
+        query = query.filter(Enrollment.total_paid > 0)
+
+    return query.order_by(Enrollment.created_at.desc()).all()
+
+
+@router.get(
+    "/super-admin/branches",
+    tags=["Super Admin Purchases"],
+)
+def get_super_admin_purchase_branches(
+    db: Session = Depends(get_db),
+    current_admin: User = Depends(get_current_super_admin),
+):
+    branches = (
+        db.query(Branch)
+        .filter(Branch.status == "Active")
+        .order_by(Branch.name.asc())
+        .all()
+    )
+    return [
+        {"branch_id": branch.id, "branch_name": branch.name}
+        for branch in branches
+    ]
+
+
+@router.get(
+    "/super-admin/pending",
+    tags=["Super Admin Purchases"],
+)
+def get_super_admin_pending_purchases(
+    branch_id: int | None = Query(default=None, ge=1),
+    db: Session = Depends(get_db),
+    current_admin: User = Depends(get_current_super_admin),
+):
+    results = get_super_admin_purchase_rows(db, branch_id, "pending")
+    return [
+        super_admin_purchase_record(
+            db, enrollment, student, course, branch_name
+        )
+        for enrollment, student, course, branch_name in results
+    ]
+
+
+@router.get(
+    "/super-admin/approved",
+    tags=["Super Admin Purchases"],
+)
+def get_super_admin_approved_purchases(
+    branch_id: int | None = Query(default=None, ge=1),
+    db: Session = Depends(get_db),
+    current_admin: User = Depends(get_current_super_admin),
+):
+    results = get_super_admin_purchase_rows(db, branch_id, "approved")
+    return [
+        super_admin_purchase_record(
+            db, enrollment, student, course, branch_name
+        )
+        for enrollment, student, course, branch_name in results
+    ]
+
+
+@router.get(
+    "/super-admin/history",
+    tags=["Super Admin Purchases"],
+)
+def get_super_admin_purchase_history(
+    branch_id: int | None = Query(default=None, ge=1),
+    db: Session = Depends(get_db),
+    current_admin: User = Depends(get_current_super_admin),
+):
+    results = get_super_admin_purchase_rows(db, branch_id, "history")
+    return [
+        super_admin_purchase_record(
+            db, enrollment, student, course, branch_name
+        )
+        for enrollment, student, course, branch_name in results
+    ]
+
+
+@router.put(
+    "/super-admin/{enrollment_id}/approve",
+    tags=["Super Admin Purchases"],
+)
+def approve_purchase_as_super_admin(
+    enrollment_id: int,
+    db: Session = Depends(get_db),
+    current_admin: User = Depends(get_current_super_admin),
+):
+    enrollment = (
+        db.query(Enrollment)
+        .filter(Enrollment.id == enrollment_id)
+        .first()
+    )
+    if not enrollment:
+        raise HTTPException(status_code=404, detail="Purchase not found")
+    if enrollment.status != "paid":
+        raise HTTPException(
+            status_code=400,
+            detail="Payment must be completed before approval",
+        )
+    if enrollment.branch_approval_status != "approved":
+        raise HTTPException(
+            status_code=409,
+            detail="Branch admin approval is required first",
+        )
+    if enrollment.super_admin_approval_status == "approved":
+        raise HTTPException(
+            status_code=400,
+            detail="Super-admin has already approved this enrollment",
+        )
+
+    enrollment.super_admin_approval_status = "approved"
+    enrollment.course_status = "approved"
+    db.commit()
+    db.refresh(enrollment)
+
+    student = db.query(User).filter(User.id == enrollment.user_id).first()
+    course = db.query(Course).filter(Course.id == enrollment.course_id).first()
+    branch = db.query(Branch).filter(Branch.id == enrollment.branch_id).first()
+    return {
+        "success": True,
+        "message": "Enrollment fully approved",
+        **super_admin_purchase_record(
+            db,
+            enrollment,
+            student,
+            course,
+            branch.name if branch else "",
+        ),
     }

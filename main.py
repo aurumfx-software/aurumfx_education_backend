@@ -69,6 +69,25 @@ database_models.Base.metadata.create_all(
 try:
     with engine.connect() as conn:
 
+        conn.execute(
+            text(
+                "ALTER TABLE admission_payments "
+                "ADD COLUMN IF NOT EXISTS payment_method VARCHAR "
+                "NOT NULL DEFAULT 'unknown';"
+            )
+        )
+
+        conn.execute(
+            text(
+                "UPDATE admission_payments "
+                "SET payment_method = CASE "
+                "WHEN cash_amount > 0 AND upi_amount > 0 THEN 'cash_upi' "
+                "WHEN cash_amount > 0 THEN 'cash' "
+                "ELSE 'unknown' END "
+                "WHERE payment_method = 'unknown';"
+            )
+        )
+
         # --------------------------------------
         # USERS
         # --------------------------------------
@@ -122,6 +141,31 @@ try:
                 "ALTER TABLE enrollments "
                 "ADD COLUMN IF NOT EXISTS created_at "
                 "TIMESTAMP WITH TIME ZONE DEFAULT NOW();"
+            )
+        )
+
+        conn.execute(
+            text(
+                "ALTER TABLE enrollments "
+                "ADD COLUMN IF NOT EXISTS branch_approval_status "
+                "VARCHAR NOT NULL DEFAULT 'pending';"
+            )
+        )
+
+        conn.execute(
+            text(
+                "ALTER TABLE enrollments "
+                "ADD COLUMN IF NOT EXISTS super_admin_approval_status "
+                "VARCHAR NOT NULL DEFAULT 'pending';"
+            )
+        )
+
+        conn.execute(
+            text(
+                "UPDATE enrollments "
+                "SET branch_approval_status = 'approved', "
+                "super_admin_approval_status = 'approved' "
+                "WHERE course_status = 'approved';"
             )
         )
 

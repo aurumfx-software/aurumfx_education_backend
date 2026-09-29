@@ -95,41 +95,26 @@ def calculate_due_date(
 
 
 # ============================================================
-# CREATE INSTALLMENT PLAN
+# BUILD INSTALLMENT PLAN
 # ============================================================
 
-def create_installment_plan(
-    db: Session,
-    enrollment: Enrollment,
-    course: Course
+def build_installment_plan(
+    course: Course,
+    admission_date: date,
+    first_installment_amount: float | None = None,
 ):
     count = course.installment_count or 0
 
-    # ========================================================
-    # FULL PAYMENT
-    # ========================================================
-
     if count == 0:
-
-        installment = EnrollmentInstallment(
-            enrollment_id=enrollment.id,
-            installment_number=1,
-            amount=course.price,
-            paid_amount=0,
-            due_date=(
-                course.start_date
-                or enrollment.admission_date
-            ),
-            status="pending",
-            paid_date=None,
-            cash_amount=0,
-            upi_amount=0
-        )
-
-        db.add(installment)
-        enrollment.installment_count = 1
-
-        return
+        if first_installment_amount is not None:
+            raise HTTPException(
+                status_code=400,
+                detail="This course is configured for full payment",
+            )
+        return [(
+            round(course.price, 2),
+            course.start_date or admission_date,
+        )]
 
     configured_terms = course.installment_terms or []
     if len(configured_terms) == count:
@@ -141,79 +126,80 @@ def create_installment_plan(
                 detail="Course installment amounts do not equal the course fee",
             )
 
-        for number, term in enumerate(configured_terms, start=1):
+        amounts = [round(float(term["amount"]), 2) for term in configured_terms]
+        due_dates = []
+        for term in configured_terms:
             due_date = term["due_date"]
             if isinstance(due_date, str):
                 due_date = date.fromisoformat(due_date)
-            db.add(
-                EnrollmentInstallment(
-                    enrollment_id=enrollment.id,
-                    installment_number=number,
-                    amount=round(float(term["amount"]), 2),
-                    paid_amount=0,
-                    due_date=due_date,
-                    status="pending",
-                    paid_date=None,
-                    cash_amount=0,
-                    upi_amount=0,
+            due_dates.append(due_date)
+    else:
+        base_date = course.start_date or admission_date
+        installment_amount = round(course.price / count, 2)
+        amounts = []
+        due_dates = []
+        for number in range(1, count + 1):
+            due_dates.append(
+                calculate_due_date(
+                    base_date,
+                    number,
+                    course.installment_schedule,
                 )
             )
-        return
+            if number == count:
+                amounts.append(
+                    round(course.price - installment_amount * (count - 1), 2)
+                )
+            else:
+                amounts.append(installment_amount)
 
-    # ========================================================
-    # INSTALLMENT PAYMENT
-    # ========================================================
-
-    installment_amount = round(
-        course.price / count,
-        2
-    )
-
-    base_date = (
-        course.start_date
-        or enrollment.admission_date
-    )
-
-    for number in range(1, count + 1):
-
-        due_date = calculate_due_date(
-            base_date,
-            number,
-            course.installment_schedule
-        )
-
-        # ====================================================
-        # HANDLE FINAL ROUNDING DIFFERENCE
-        # ====================================================
-
-        if number == count:
-
-            previous_amount = round(
-                installment_amount * (count - 1),
-                2
+    if first_installment_amount is not None:
+        first_amount = round(first_installment_amount, 2)
+        if first_amount > round(course.price, 2):
+            raise HTTPException(
+                status_code=400,
+                detail="First installment cannot exceed the course fee",
+            )
+        if count == 1 and first_amount != round(course.price, 2):
+            raise HTTPException(
+                status_code=400,
+                detail="A single installment must equal the course fee",
+            )
+        if count > 1 and first_amount != amounts[0]:
+            remaining_amount = round(course.price - first_amount, 2)
+            equal_amount = round(remaining_amount / (count - 1), 2)
+            amounts = [first_amount] + [equal_amount] * (count - 1)
+            amounts[-1] = round(
+                remaining_amount - equal_amount * (count - 2),
+                2,
             )
 
-            amount = round(
-                course.price - previous_amount,
-                2
+    return list(zip(amounts, due_dates))
+
+
+def create_installment_plan(
+    db: Session,
+    enrollment: Enrollment,
+    installment_plan: list[tuple[float, date]],
+    course_installment_count: int,
+):
+    if course_installment_count == 0:
+        enrollment.installment_count = 1
+
+    for number, (amount, due_date) in enumerate(installment_plan, start=1):
+        db.add(
+            EnrollmentInstallment(
+                enrollment_id=enrollment.id,
+                installment_number=number,
+                amount=amount,
+                paid_amount=0,
+                due_date=due_date,
+                status="pending",
+                paid_date=None,
+                cash_amount=0,
+                upi_amount=0,
             )
-
-        else:
-            amount = installment_amount
-
-        installment = EnrollmentInstallment(
-            enrollment_id=enrollment.id,
-            installment_number=number,
-            amount=amount,
-            paid_amount=0,
-            due_date=due_date,
-            status="pending",
-            paid_date=None,
-            cash_amount=0,
-            upi_amount=0
         )
-
-        db.add(installment)
 
 
 # ============================================================
@@ -436,6 +422,14 @@ def create_payment(
 
             upi_amount=upi_for_installment,
 
+            payment_method=(
+                "cash_upi"
+                if cash_for_installment > 0 and upi_for_installment > 0
+                else "cash"
+                if cash_for_installment > 0
+                else "upi"
+            ),
+
             payment_date=payment_date,
 
             status="received"
@@ -650,12 +644,6 @@ def create_admission(
         )
 
     if data.installment_number is not None:
-        available_installments = max(course.installment_count or 0, 1)
-        if data.installment_number > available_installments:
-            raise HTTPException(
-                status_code=400,
-                detail="Selected installment does not exist for this course",
-            )
         if data.payment_status != "received" or first_payment <= 0:
             raise HTTPException(
                 status_code=400,
@@ -692,6 +680,35 @@ def create_admission(
     else:
 
         installment_amount = course.price
+
+    installment_plan = build_installment_plan(
+        course=course,
+        admission_date=admission_date,
+        first_installment_amount=data.first_installment_amount,
+    )
+
+    if data.payment_status == "received":
+        if data.installment_number is None:
+            if first_payment != round(course.price, 2):
+                raise HTTPException(
+                    status_code=400,
+                    detail="Full course payment must equal the course fee",
+                )
+        else:
+            if data.installment_number > len(installment_plan):
+                raise HTTPException(
+                    status_code=400,
+                    detail="Selected installment does not exist for this course",
+                )
+            selected_amount = installment_plan[data.installment_number - 1][0]
+            if first_payment != selected_amount:
+                raise HTTPException(
+                    status_code=400,
+                    detail=(
+                        "Payment must equal the selected installment amount "
+                        f"₹{selected_amount:.2f}"
+                    ),
+                )
 
     # ========================================================
     # CREATE USER
@@ -781,7 +798,11 @@ def create_admission(
 
         status="pending",
 
-        course_status="approved"
+        course_status="pending",
+
+        branch_approval_status="pending",
+
+        super_admin_approval_status="pending"
     )
 
     db.add(enrollment)
@@ -795,7 +816,8 @@ def create_admission(
     create_installment_plan(
         db=db,
         enrollment=enrollment,
-        course=course
+        installment_plan=installment_plan,
+        course_installment_count=installment_count,
     )
 
     db.flush()
@@ -926,6 +948,40 @@ def add_payment(
                 f"balance "
                 f"₹{enrollment.balance_amount:.2f}"
             )
+        )
+
+    if data.installment_number is None:
+        raise HTTPException(
+            status_code=400,
+            detail="Select an installment to pay",
+        )
+
+    selected_installment = (
+        db.query(EnrollmentInstallment)
+        .filter(
+            EnrollmentInstallment.enrollment_id == enrollment.id,
+            EnrollmentInstallment.installment_number == data.installment_number,
+            EnrollmentInstallment.status != "paid",
+        )
+        .first()
+    )
+    if not selected_installment:
+        raise HTTPException(
+            status_code=400,
+            detail="Selected installment is not available",
+        )
+
+    installment_balance = round(
+        selected_installment.amount - selected_installment.paid_amount,
+        2,
+    )
+    if amount != installment_balance:
+        raise HTTPException(
+            status_code=400,
+            detail=(
+                "Payment must equal the selected installment balance "
+                f"₹{installment_balance:.2f}"
+            ),
         )
 
     # ========================================================
@@ -1241,6 +1297,15 @@ def build_admission_response(
 
         "status":
             enrollment.status,
+
+        "course_status":
+            enrollment.course_status,
+
+        "branch_approval_status":
+            enrollment.branch_approval_status,
+
+        "super_admin_approval_status":
+            enrollment.super_admin_approval_status,
 
         "payments":
             payments

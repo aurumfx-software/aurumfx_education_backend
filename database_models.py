@@ -1465,6 +1465,18 @@ class Enrollment(Base):
         nullable=False
     )
 
+    branch_approval_status = Column(
+        String,
+        default="pending",
+        nullable=False
+    )
+
+    super_admin_approval_status = Column(
+        String,
+        default="pending",
+        nullable=False
+    )
+
     # ========================================================
     # RAZORPAY
     # ========================================================
@@ -1688,6 +1700,12 @@ class AdmissionPayment(Base):
     upi_amount = Column(
         Float,
         default=0,
+        nullable=False
+    )
+
+    payment_method = Column(
+        String,
+        default="unknown",
         nullable=False
     )
 

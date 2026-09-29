@@ -28,6 +28,11 @@ class BranchAdmissionCreate(BaseModel):
     # COURSE
     course_id: int
 
+    first_installment_amount: float | None = Field(
+        default=None,
+        gt=0,
+    )
+
     # PAYMENT
     payment_status: str = "not_received"
 
@@ -125,6 +130,8 @@ class AdmissionPaymentResponse(BaseModel):
 
     upi_amount: float
 
+    payment_method: str
+
     payment_date: date
 
     status: str
@@ -173,5 +180,9 @@ class BranchAdmissionResponse(BaseModel):
     due_installments: list[InstallmentResponse] = Field(default_factory=list)
 
     status: str
+
+    course_status: str = "pending"
+    branch_approval_status: str = "pending"
+    super_admin_approval_status: str = "pending"
 
     payments: list[AdmissionPaymentResponse]

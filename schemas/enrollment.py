@@ -20,6 +20,22 @@ class EnrollmentInstallmentUpdate(BaseModel):
     due_date: date
 
 
+class EnrollmentPaymentDetail(BaseModel):
+    id: int
+    enrollment_id: int
+    installment_id: int | None
+    installment_number: int
+    amount: float
+    cash_amount: float
+    upi_amount: float
+    payment_method: str
+    payment_date: date
+    status: str
+
+    class Config:
+        from_attributes = True
+
+
 class BranchAdminEnrollmentUpdate(BaseModel):
     name: str | None = None
     email: EmailStr | None = None
@@ -69,6 +85,8 @@ class EnrollmentResponse(BaseModel):
 
     # Branch approval status
     course_status: str
+    branch_approval_status: str = "pending"
+    super_admin_approval_status: str = "pending"
 
     razorpay_order_id: str | None = None
     razorpay_payment_id: str | None = None
@@ -111,12 +129,15 @@ class AdminEnrollmentResponse(BaseModel):
     remaining_installment_count: int = 0
     due_installment_count: int = 0
     installments: list[EnrollmentInstallmentDetail] = Field(default_factory=list)
+    payments: list[EnrollmentPaymentDetail] = Field(default_factory=list)
 
     # Payment status
     status: str
 
     # Branch approval status
     course_status: str
+    branch_approval_status: str = "pending"
+    super_admin_approval_status: str = "pending"
 
     razorpay_order_id: str | None = None
     razorpay_payment_id: str | None = None

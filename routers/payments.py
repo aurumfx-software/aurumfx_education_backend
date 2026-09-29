@@ -163,6 +163,34 @@ def apply_student_payment(
         )
 
     if payment_order.installment_id:
+        selected_installment = (
+            db.query(EnrollmentInstallment)
+            .filter(
+                EnrollmentInstallment.id == payment_order.installment_id,
+                EnrollmentInstallment.enrollment_id == enrollment.id,
+            )
+            .with_for_update()
+            .first()
+        )
+        if not selected_installment:
+            raise HTTPException(
+                status_code=404,
+                detail="Approved installment not found for this enrollment",
+            )
+        approved_remaining = round(
+            selected_installment.amount - selected_installment.paid_amount,
+            2,
+        )
+        if payment_amount > approved_remaining:
+            raise HTTPException(
+                status_code=400,
+                detail=(
+                    "Payment exceeds the approved remaining amount for this installment. "
+                    f"Allowed: ₹{approved_remaining:.2f}"
+                ),
+            )
+
+    if payment_order.installment_id:
         installments = (
             db.query(EnrollmentInstallment)
             .filter(
@@ -211,7 +239,8 @@ def apply_student_payment(
                 branch_id=enrollment.branch_id,
                 amount=amount_for_term,
                 cash_amount=0,
-                upi_amount=amount_for_term,
+                upi_amount=0,
+                payment_method="razorpay",
                 payment_date=payment_date,
                 status="received",
             )
@@ -455,10 +484,17 @@ def create_order(
                 status_code=400,
                 detail="This installment is already paid",
             )
-        payment_amount = round(
+        approved_remaining = round(
             selected_installment.amount - selected_installment.paid_amount,
             2,
         )
+        if approved_remaining <= 0:
+            db.rollback()
+            raise HTTPException(
+                status_code=400,
+                detail="This installment has no approved remaining amount left",
+            )
+        payment_amount = approved_remaining
     else:
         payment_amount = round(enrollment.balance_amount, 2)
 
