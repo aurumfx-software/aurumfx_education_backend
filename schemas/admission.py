@@ -7,6 +7,12 @@ from pydantic import BaseModel, Field
 # BRANCH ADMIN - REGISTER STUDENT
 # ============================================================
 
+class AdmissionInstallmentCreate(BaseModel):
+    installment_number: int = Field(ge=1)
+    amount: float = Field(gt=0)
+    due_date: date
+
+
 class BranchAdmissionCreate(BaseModel):
 
     # STUDENT DETAILS
@@ -27,6 +33,8 @@ class BranchAdmissionCreate(BaseModel):
 
     # COURSE
     course_id: int
+
+    installments: list[AdmissionInstallmentCreate] | None = None
 
     first_installment_amount: float | None = Field(
         default=None,

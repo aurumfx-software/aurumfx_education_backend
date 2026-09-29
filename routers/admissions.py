@@ -102,8 +102,62 @@ def build_installment_plan(
     course: Course,
     admission_date: date,
     first_installment_amount: float | None = None,
+    custom_installments=None,
 ):
     count = course.installment_count or 0
+
+    if custom_installments is not None:
+        expected_count = max(count, 1)
+        if len(custom_installments) != expected_count:
+            raise HTTPException(
+                status_code=400,
+                detail=f"Exactly {expected_count} installments are required for this course",
+            )
+
+        installment_numbers = [
+            term.installment_number for term in custom_installments
+        ]
+        if installment_numbers != list(range(1, expected_count + 1)):
+            raise HTTPException(
+                status_code=400,
+                detail="Installment numbers must be sequential starting at 1",
+            )
+
+        total_amount = round(
+            sum(term.amount for term in custom_installments),
+            2,
+        )
+        if total_amount != round(course.price, 2):
+            raise HTTPException(
+                status_code=400,
+                detail="Installment amounts must equal the course fee",
+            )
+
+        due_dates = [term.due_date for term in custom_installments]
+        if due_dates != sorted(due_dates):
+            raise HTTPException(
+                status_code=400,
+                detail="Installment due dates must be in chronological order",
+            )
+        if course.start_date and any(
+            due_date < course.start_date for due_date in due_dates
+        ):
+            raise HTTPException(
+                status_code=400,
+                detail="Installment due dates cannot be before the course start date",
+            )
+        if course.end_date and any(
+            due_date > course.end_date for due_date in due_dates
+        ):
+            raise HTTPException(
+                status_code=400,
+                detail="Installment due dates cannot be after the course end date",
+            )
+
+        return [
+            (round(term.amount, 2), term.due_date)
+            for term in custom_installments
+        ]
 
     if count == 0:
         if first_installment_amount is not None:
@@ -643,6 +697,17 @@ def create_admission(
             detail="Payment cannot exceed course fee"
         )
 
+    if (
+        data.installments is not None
+        and data.first_installment_amount is not None
+    ):
+        raise HTTPException(
+            status_code=400,
+            detail=(
+                "Send either installments or first_installment_amount, not both"
+            ),
+        )
+
     if data.installment_number is not None:
         if data.payment_status != "received" or first_payment <= 0:
             raise HTTPException(
@@ -685,6 +750,7 @@ def create_admission(
         course=course,
         admission_date=admission_date,
         first_installment_amount=data.first_installment_amount,
+        custom_installments=data.installments,
     )
 
     if data.payment_status == "received":
