@@ -29,8 +29,17 @@ class UserLogin(BaseModel):
 
     
 class BranchAdminLogin(BaseModel):
-    email: EmailStr
+    email: str | None = None
+    branch_admin_id: str | None = None
     password: str
+
+    @model_validator(mode="after")
+    def require_login_identifier(self):
+        if not self.email and not self.branch_admin_id:
+            raise ValueError("email or branch_admin_id is required")
+        if self.email and self.branch_admin_id:
+            raise ValueError("provide email or branch_admin_id, not both")
+        return self
 
 
 class SuperAdminLogin(BaseModel):

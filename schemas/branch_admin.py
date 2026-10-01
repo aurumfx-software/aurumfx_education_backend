@@ -1,6 +1,6 @@
 from typing import Optional
 
-from pydantic import BaseModel, EmailStr, ConfigDict
+from pydantic import BaseModel, EmailStr, ConfigDict, IPvAnyAddress
 
 
 class BranchAdminCreate(BaseModel):
@@ -9,12 +9,14 @@ class BranchAdminCreate(BaseModel):
     name: str
     email: EmailStr
     phone: Optional[str] = None
+    allowed_ip_address: IPvAnyAddress
 
 
 class BranchAdminResponse(BaseModel):
     id: int
     branch_id: int
     branch_admin_id: Optional[str] = None
+    allowed_ip_address: Optional[str] = None
     name: str
     email: EmailStr
     phone: Optional[str] = None

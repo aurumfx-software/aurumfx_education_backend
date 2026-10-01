@@ -929,6 +929,11 @@ class User(Base):
         nullable=True
     )
 
+    allowed_ip_address = Column(
+        String,
+        nullable=True
+    )
+
     # ========================================================
     # BRANCH
     # ========================================================
@@ -1196,6 +1201,17 @@ class Enquiry(Base):
         String,
         default="New",
         nullable=False
+    )
+
+    branch_admin_status = Column(
+        String,
+        default="pending",
+        nullable=False
+    )
+
+    branch_admin_read_at = Column(
+        DateTime(timezone=True),
+        nullable=True
     )
 
     created_at = Column(
@@ -1475,6 +1491,16 @@ class Enrollment(Base):
         String,
         default="pending",
         nullable=False
+    )
+
+    super_admin_rejection_reason = Column(
+        String,
+        nullable=True
+    )
+
+    super_admin_rejected_at = Column(
+        DateTime(timezone=True),
+        nullable=True
     )
 
     # ========================================================

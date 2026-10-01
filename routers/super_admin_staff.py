@@ -1,6 +1,7 @@
 import uuid
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Query
+from sqlalchemy import func
 from sqlalchemy.orm import Session
 
 from database import SessionLocal
@@ -123,7 +124,6 @@ def get_branches(
 ):
     branches = (
         db.query(Branch)
-        .filter(Branch.status == "Active")
         .order_by(Branch.name.asc())
         .all()
     )
@@ -136,6 +136,50 @@ def get_branches(
         }
         for branch in branches
     ]
+
+
+@router.get("")
+def get_all_staff(
+    offset: int = Query(default=0, ge=0),
+    limit: int = Query(default=100, ge=1, le=500),
+    db: Session = Depends(get_db),
+    current_admin: User = Depends(get_current_super_admin),
+):
+    total_staff = db.query(func.count(Staff.id)).scalar() or 0
+    active_staff = (
+        db.query(func.count(Staff.id))
+        .filter(Staff.status == "Active")
+        .scalar()
+        or 0
+    )
+    rows = (
+        db.query(Staff, Branch)
+        .join(Branch, Branch.id == Staff.branch_id)
+        .order_by(Staff.created_at.desc(), Staff.id.desc())
+        .offset(offset)
+        .limit(limit)
+        .all()
+    )
+
+    staff_details = []
+    for staff, branch in rows:
+        staff_details.append(
+            {
+                **build_staff_response(db, staff),
+                "branch_name": branch.name,
+                "branch_location": branch.location,
+                "branch_status": branch.status,
+            }
+        )
+
+    return {
+        "total_staff": int(total_staff),
+        "active_staff": int(active_staff),
+        "inactive_staff": int(total_staff - active_staff),
+        "offset": offset,
+        "limit": limit,
+        "staff": staff_details,
+    }
 
 
 @router.get("/branches/{branch_id}/courses")

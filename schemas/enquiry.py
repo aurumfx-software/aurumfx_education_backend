@@ -31,6 +31,8 @@ class EnquiryResponse(BaseModel):
     qualification: Optional[str] = None
     message: Optional[str] = None
     status: str
+    branch_admin_status: str = "pending"
+    branch_admin_read_at: Optional[datetime] = None
     created_at: Optional[datetime] = None
 
     model_config = ConfigDict(from_attributes=True, populate_by_name=True)

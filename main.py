@@ -13,6 +13,7 @@ from routers import (
     courses,
     enquiries,
     super_admin_enquiries,
+    super_admin_records,
     settings,
     enrollments,
     super_admin_enrollments,
@@ -107,6 +108,13 @@ try:
             )
         )
 
+        conn.execute(
+            text(
+                "ALTER TABLE users "
+                "ADD COLUMN IF NOT EXISTS allowed_ip_address VARCHAR;"
+            )
+        )
+
         # --------------------------------------
         # ENQUIRIES
         # --------------------------------------
@@ -123,6 +131,22 @@ try:
                 "ALTER TABLE enquiries "
                 "ADD COLUMN IF NOT EXISTS branch_id INTEGER "
                 "REFERENCES branches(id);"
+            )
+        )
+
+        conn.execute(
+            text(
+                "ALTER TABLE enquiries "
+                "ADD COLUMN IF NOT EXISTS branch_admin_status "
+                "VARCHAR NOT NULL DEFAULT 'pending';"
+            )
+        )
+
+        conn.execute(
+            text(
+                "ALTER TABLE enquiries "
+                "ADD COLUMN IF NOT EXISTS branch_admin_read_at "
+                "TIMESTAMP WITH TIME ZONE;"
             )
         )
 
@@ -165,6 +189,21 @@ try:
                 "ALTER TABLE enrollments "
                 "ADD COLUMN IF NOT EXISTS super_admin_approval_status "
                 "VARCHAR NOT NULL DEFAULT 'pending';"
+            )
+        )
+
+        conn.execute(
+            text(
+                "ALTER TABLE enrollments "
+                "ADD COLUMN IF NOT EXISTS super_admin_rejection_reason TEXT;"
+            )
+        )
+
+        conn.execute(
+            text(
+                "ALTER TABLE enrollments "
+                "ADD COLUMN IF NOT EXISTS super_admin_rejected_at "
+                "TIMESTAMP WITH TIME ZONE;"
             )
         )
 
@@ -255,6 +294,8 @@ app.include_router(super_admin_courses.router)
 app.include_router(enquiries.router)
 
 app.include_router(super_admin_enquiries.router)
+
+app.include_router(super_admin_records.router)
 
 app.include_router(settings.router)
 

@@ -1,7 +1,9 @@
 from typing import List
+from ipaddress import ip_address
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Request
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
+from sqlalchemy import or_
 from sqlalchemy.orm import Session
 
 from database import SessionLocal
@@ -490,6 +492,7 @@ def change_admin_password(
     tags=["Branch Admin Authentication"]
 )
 def branch_admin_login(
+    request: Request,
     login_data: BranchAdminLogin,
     db: Session = Depends(get_db)
 ):
@@ -498,11 +501,17 @@ def branch_admin_login(
     # FIND BRANCH ADMIN
     # ==========================================
 
+    login_identifier = (
+        login_data.branch_admin_id or login_data.email or ""
+    ).strip()
     db_user = (
         db.query(User)
         .filter(
-            User.email == login_data.email,
-            User.role == "branch_admin"
+            User.role == "branch_admin",
+            or_(
+                User.email == login_identifier,
+                User.branch_admin_id == login_identifier.upper(),
+            ),
         )
         .first()
     )
@@ -563,6 +572,23 @@ def branch_admin_login(
             status_code=403,
             detail="Branch is inactive"
         )
+
+    if db_user.allowed_ip_address:
+        client_host = request.client.host if request.client else None
+        try:
+            client_ip = ip_address(client_host)
+            allowed_ip = ip_address(db_user.allowed_ip_address)
+        except (TypeError, ValueError):
+            raise HTTPException(
+                status_code=403,
+                detail="Unable to verify the login IP address",
+            )
+
+        if client_ip != allowed_ip:
+            raise HTTPException(
+                status_code=403,
+                detail="Login is only allowed from the registered IP address",
+            )
 
     # ==========================================
     # CREATE JWT

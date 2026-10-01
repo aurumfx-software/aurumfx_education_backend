@@ -1,4 +1,5 @@
 from typing import List
+from datetime import datetime, timezone
 
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
@@ -114,7 +115,6 @@ def create_enquiry(
 
 @router.get(
     "/branch-admin",
-    response_model=List[EnquiryResponse],
     tags=["Branch Admin Enquiries"],
 )
 def get_branch_admin_enquiries(
@@ -139,7 +139,7 @@ def get_branch_admin_enquiries(
         .order_by(Enquiry.created_at.desc())
         .all()
     )
-    return [
+    enquiry_items = [
         {
             "id": enquiry.id,
             "branch_id": enquiry.branch_id,
@@ -151,10 +151,69 @@ def get_branch_admin_enquiries(
             "qualification": enquiry.qualification,
             "message": enquiry.message,
             "status": enquiry.status,
+            "branch_admin_status": enquiry.branch_admin_status,
+            "branch_admin_read_at": enquiry.branch_admin_read_at,
             "created_at": enquiry.created_at,
         }
         for enquiry, branch_name in results
     ]
+    return {
+        "total_enquiries": len(enquiry_items),
+        "pending_enquiries": sum(
+            item["branch_admin_status"] == "pending"
+            for item in enquiry_items
+        ),
+        "enquiries": enquiry_items,
+    }
+
+
+@router.put(
+    "/branch-admin/{enquiry_id}/read",
+    tags=["Branch Admin Enquiries"],
+)
+def mark_branch_admin_enquiry_read(
+    enquiry_id: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    if current_user.role != "branch_admin":
+        raise HTTPException(
+            status_code=403,
+            detail="Branch admin access required",
+        )
+    if not current_user.branch_id:
+        raise HTTPException(
+            status_code=400,
+            detail="Branch admin is not assigned to a branch",
+        )
+
+    enquiry = (
+        db.query(Enquiry)
+        .filter(
+            Enquiry.id == enquiry_id,
+            Enquiry.branch_id == current_user.branch_id,
+        )
+        .first()
+    )
+    if not enquiry:
+        raise HTTPException(
+            status_code=404,
+            detail="Enquiry not found in your branch",
+        )
+
+    if enquiry.branch_admin_status != "read":
+        enquiry.branch_admin_status = "read"
+        enquiry.branch_admin_read_at = datetime.now(timezone.utc)
+        db.commit()
+        db.refresh(enquiry)
+
+    return {
+        "message": "Enquiry marked as read",
+        "id": enquiry.id,
+        "branch_id": enquiry.branch_id,
+        "branch_admin_status": enquiry.branch_admin_status,
+        "branch_admin_read_at": enquiry.branch_admin_read_at,
+    }
 
 
 # ==========================================

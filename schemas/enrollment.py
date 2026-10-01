@@ -47,6 +47,10 @@ class BranchAdminEnrollmentUpdate(BaseModel):
     installments: list[EnrollmentInstallmentUpdate] | None = None
 
 
+class SuperAdminPurchaseReject(BaseModel):
+    reason: str = Field(min_length=1, max_length=1000)
+
+
 # ==========================================
 # STUDENT ENROLLMENT RESPONSE
 # ==========================================
@@ -87,6 +91,8 @@ class EnrollmentResponse(BaseModel):
     course_status: str
     branch_approval_status: str = "pending"
     super_admin_approval_status: str = "pending"
+    super_admin_rejection_reason: str | None = None
+    super_admin_rejected_at: datetime | None = None
 
     razorpay_order_id: str | None = None
     razorpay_payment_id: str | None = None
@@ -138,6 +144,8 @@ class AdminEnrollmentResponse(BaseModel):
     course_status: str
     branch_approval_status: str = "pending"
     super_admin_approval_status: str = "pending"
+    super_admin_rejection_reason: str | None = None
+    super_admin_rejected_at: datetime | None = None
 
     razorpay_order_id: str | None = None
     razorpay_payment_id: str | None = None

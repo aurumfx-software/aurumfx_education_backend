@@ -181,25 +181,63 @@ def get_super_admin_dashboard(
     payment_method_rows = (
         db.query(
             AdmissionPayment.branch_id.label("branch_id"),
-            AdmissionPayment.payment_method.label("payment_method"),
-            func.sum(AdmissionPayment.amount).label("amount"),
+            func.sum(
+                case(
+                    (
+                        AdmissionPayment.payment_method.in_(["cash", "cash_upi"]),
+                        AdmissionPayment.cash_amount,
+                    ),
+                    else_=0,
+                )
+            ).label("cash_amount"),
+            func.sum(
+                case(
+                    (
+                        AdmissionPayment.payment_method.in_(["upi", "cash_upi"]),
+                        AdmissionPayment.upi_amount,
+                    ),
+                    else_=0,
+                )
+            ).label("upi_amount"),
+            func.sum(
+                case(
+                    (AdmissionPayment.payment_method == "razorpay", AdmissionPayment.amount),
+                    else_=0,
+                )
+            ).label("razorpay_amount"),
+            func.sum(
+                case(
+                    (
+                        AdmissionPayment.payment_method == "unknown",
+                        AdmissionPayment.amount,
+                    ),
+                    else_=0,
+                )
+            ).label("unknown_amount"),
         )
         .filter(
             AdmissionPayment.branch_id.in_(branch_ids),
             AdmissionPayment.status == "received",
         )
-        .group_by(AdmissionPayment.branch_id, AdmissionPayment.payment_method)
+        .group_by(AdmissionPayment.branch_id)
         .all()
     )
-    payment_methods_by_branch = {branch_id: {} for branch_id in branch_ids}
-    overall_payment_methods = {}
+    payment_method_keys = ("cash", "upi", "razorpay", "unknown")
+    payment_methods_by_branch = {
+        branch_id: {method: 0.0 for method in payment_method_keys}
+        for branch_id in branch_ids
+    }
+    overall_payment_methods = {method: 0.0 for method in payment_method_keys}
     for row in payment_method_rows:
-        method = row.payment_method or "unknown"
-        amount = float(row.amount or 0)
-        payment_methods_by_branch[row.branch_id][method] = amount
-        overall_payment_methods[method] = (
-            overall_payment_methods.get(method, 0) + amount
-        )
+        amounts = {
+            "cash": float(row.cash_amount or 0),
+            "upi": float(row.upi_amount or 0),
+            "razorpay": float(row.razorpay_amount or 0),
+            "unknown": float(row.unknown_amount or 0),
+        }
+        payment_methods_by_branch[row.branch_id] = amounts
+        for method, amount in amounts.items():
+            overall_payment_methods[method] += amount
 
     staff_attendance = rows_by_branch(
         db.query(

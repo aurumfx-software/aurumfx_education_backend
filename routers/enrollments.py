@@ -1,4 +1,4 @@
-from datetime import date
+from datetime import date, datetime, timezone
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.orm import Session
@@ -19,6 +19,7 @@ from schemas.enrollment import (
     EnrollmentResponse,
     AdminEnrollmentResponse,
     BranchAdminEnrollmentUpdate,
+    SuperAdminPurchaseReject,
 )
 
 from routers.auth import get_current_user, get_current_super_admin
@@ -74,6 +75,8 @@ def enrollment_payment_summary(db: Session, enrollment: Enrollment):
         "due_installment_count": len(due_installments),
         "branch_approval_status": enrollment.branch_approval_status,
         "super_admin_approval_status": enrollment.super_admin_approval_status,
+        "super_admin_rejection_reason": enrollment.super_admin_rejection_reason,
+        "super_admin_rejected_at": enrollment.super_admin_rejected_at,
         "installments": [
             {
                 "installment_id": installment.id,
@@ -386,6 +389,8 @@ def get_my_enrollments(
 
             # Branch approval status
             "course_status": enrollment.course_status,
+            "super_admin_rejection_reason": enrollment.super_admin_rejection_reason,
+            "super_admin_rejected_at": enrollment.super_admin_rejected_at,
 
             "razorpay_order_id": enrollment.razorpay_order_id,
             "razorpay_payment_id": enrollment.razorpay_payment_id,
@@ -452,6 +457,8 @@ def get_my_purchases(
 
             # Branch approval status
             "course_status": enrollment.course_status,
+            "super_admin_rejection_reason": enrollment.super_admin_rejection_reason,
+            "super_admin_rejected_at": enrollment.super_admin_rejected_at,
 
             "razorpay_payment_id": enrollment.razorpay_payment_id,
 
@@ -1013,7 +1020,8 @@ def get_approved_purchases(
         .filter(
             Enrollment.branch_id == current_user.branch_id,
             Enrollment.status == "paid",
-            Enrollment.branch_approval_status == "approved"
+            Enrollment.branch_approval_status == "approved",
+            Enrollment.super_admin_approval_status != "rejected",
         )
         .order_by(
             Enrollment.created_at.desc()
@@ -1053,6 +1061,65 @@ def get_approved_purchases(
         }
 
         for enrollment, student, course in results
+    ]
+
+
+@router.get(
+    "/branch-admin/rejected",
+    tags=["Branch Admin Purchases"],
+)
+def get_rejected_purchases_for_branch_admin(
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    if current_user.role != "branch_admin":
+        raise HTTPException(
+            status_code=403,
+            detail="Branch admin access required",
+        )
+    if not current_user.branch_id:
+        raise HTTPException(
+            status_code=400,
+            detail="Branch admin is not assigned to a branch",
+        )
+
+    rows = (
+        db.query(Enrollment, User, Course)
+        .join(User, User.id == Enrollment.user_id)
+        .join(Course, Course.id == Enrollment.course_id)
+        .filter(
+            Enrollment.branch_id == current_user.branch_id,
+            Enrollment.status == "paid",
+            Enrollment.super_admin_approval_status == "rejected",
+        )
+        .order_by(Enrollment.super_admin_rejected_at.desc())
+        .all()
+    )
+    return [
+        {
+            "enrollment_id": enrollment.id,
+            "user_id": enrollment.user_id,
+            "course_id": enrollment.course_id,
+            "name": enrollment.name or student.name,
+            "email": enrollment.email or student.email,
+            "phone": enrollment.phone or student.phone,
+            "parent_name": enrollment.parent_name,
+            "parent_phone": enrollment.parent_phone,
+            "highest_qualification": enrollment.highest_qualification,
+            "address": enrollment.address,
+            "course_title": enrollment.course_title or course.title,
+            "course_image": course.image,
+            "course_duration": course.duration,
+            "total_fee": enrollment.total_fee,
+            "amount": enrollment.total_fee,
+            **enrollment_payment_summary(db, enrollment),
+            "payment_status": enrollment.status,
+            "course_status": enrollment.course_status,
+            "super_admin_rejection_reason": enrollment.super_admin_rejection_reason,
+            "super_admin_rejected_at": enrollment.super_admin_rejected_at,
+            "created_at": enrollment.created_at,
+        }
+        for enrollment, student, course in rows
     ]
 
 
@@ -1128,6 +1195,8 @@ def approve_purchase(
         "course_status": enrollment.course_status,
         "branch_approval_status": enrollment.branch_approval_status,
         "super_admin_approval_status": enrollment.super_admin_approval_status,
+        "super_admin_rejection_reason": enrollment.super_admin_rejection_reason,
+        "super_admin_rejected_at": enrollment.super_admin_rejected_at,
 
         "razorpay_payment_id": enrollment.razorpay_payment_id
     }
@@ -1163,6 +1232,8 @@ def super_admin_purchase_record(
         "course_status": enrollment.course_status,
         "branch_approval_status": enrollment.branch_approval_status,
         "super_admin_approval_status": enrollment.super_admin_approval_status,
+        "super_admin_rejection_reason": enrollment.super_admin_rejection_reason,
+        "super_admin_rejected_at": enrollment.super_admin_rejected_at,
         "razorpay_order_id": enrollment.razorpay_order_id,
         "razorpay_payment_id": enrollment.razorpay_payment_id,
         "created_at": enrollment.created_at,
@@ -1198,6 +1269,11 @@ def get_super_admin_purchase_rows(
         query = query.filter(
             Enrollment.status == "paid",
             Enrollment.super_admin_approval_status == "approved",
+        )
+    elif queue == "rejected":
+        query = query.filter(
+            Enrollment.status == "paid",
+            Enrollment.super_admin_approval_status == "rejected",
         )
     else:
         query = query.filter(Enrollment.total_paid > 0)
@@ -1262,6 +1338,22 @@ def get_super_admin_approved_purchases(
 
 
 @router.get(
+    "/super-admin/rejected",
+    tags=["Super Admin Purchases"],
+)
+def get_super_admin_rejected_purchases(
+    branch_id: int | None = Query(default=None, ge=1),
+    db: Session = Depends(get_db),
+    current_admin: User = Depends(get_current_super_admin),
+):
+    results = get_super_admin_purchase_rows(db, branch_id, "rejected")
+    return [
+        super_admin_purchase_record(db, enrollment, student, course, branch_name)
+        for enrollment, student, course, branch_name in results
+    ]
+
+
+@router.get(
     "/super-admin/history",
     tags=["Super Admin Purchases"],
 )
@@ -1310,6 +1402,11 @@ def approve_purchase_as_super_admin(
             status_code=400,
             detail="Super-admin has already approved this enrollment",
         )
+    if enrollment.super_admin_approval_status == "rejected":
+        raise HTTPException(
+            status_code=409,
+            detail="A rejected enrollment cannot be approved",
+        )
 
     enrollment.super_admin_approval_status = "approved"
     enrollment.course_status = "approved"
@@ -1322,6 +1419,66 @@ def approve_purchase_as_super_admin(
     return {
         "success": True,
         "message": "Enrollment fully approved",
+        **super_admin_purchase_record(
+            db,
+            enrollment,
+            student,
+            course,
+            branch.name if branch else "",
+        ),
+    }
+
+
+@router.put(
+    "/super-admin/{enrollment_id}/reject",
+    tags=["Super Admin Purchases"],
+)
+def reject_purchase_as_super_admin(
+    enrollment_id: int,
+    rejection_data: SuperAdminPurchaseReject,
+    db: Session = Depends(get_db),
+    current_admin: User = Depends(get_current_super_admin),
+):
+    enrollment = (
+        db.query(Enrollment)
+        .filter(Enrollment.id == enrollment_id)
+        .first()
+    )
+    if not enrollment:
+        raise HTTPException(status_code=404, detail="Purchase not found")
+    if enrollment.status != "paid":
+        raise HTTPException(
+            status_code=400,
+            detail="Payment must be completed before rejection",
+        )
+    if enrollment.branch_approval_status != "approved":
+        raise HTTPException(
+            status_code=409,
+            detail="Branch admin approval is required first",
+        )
+    if enrollment.super_admin_approval_status != "pending":
+        raise HTTPException(
+            status_code=409,
+            detail="Only pending super-admin approvals can be rejected",
+        )
+
+    reason = rejection_data.reason.strip()
+    if not reason:
+        raise HTTPException(status_code=400, detail="Rejection reason is required")
+
+    enrollment.super_admin_approval_status = "rejected"
+    enrollment.course_status = "rejected"
+    enrollment.super_admin_rejection_reason = reason
+    enrollment.super_admin_rejected_at = datetime.now(timezone.utc)
+    db.commit()
+    db.refresh(enrollment)
+
+    student = db.query(User).filter(User.id == enrollment.user_id).first()
+    course = db.query(Course).filter(Course.id == enrollment.course_id).first()
+    branch = db.query(Branch).filter(Branch.id == enrollment.branch_id).first()
+    return {
+        "success": True,
+        "message": "Enrollment rejected",
         **super_admin_purchase_record(
             db,
             enrollment,

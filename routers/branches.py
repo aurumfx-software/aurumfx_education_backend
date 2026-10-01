@@ -12,7 +12,8 @@
 
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
-import uuid
+import secrets
+import string
 
 from database import SessionLocal
 from database_models import Branch, User, Course
@@ -286,9 +287,19 @@ def create_branch_admin(
     # GENERATE BRANCH ADMIN ID
     # ==========================================
 
-    branch_admin_id = (
-        f"BA-{uuid.uuid4().hex[:8].upper()}"
-    )
+    id_characters = string.ascii_uppercase + string.digits
+    while True:
+        branch_admin_id = "".join(
+            secrets.choice(id_characters)
+            for _ in range(6)
+        )
+        existing_id = (
+            db.query(User.id)
+            .filter(User.branch_admin_id == branch_admin_id)
+            .first()
+        )
+        if not existing_id:
+            break
 
     hashed_password = hash_password(
         admin.password
@@ -299,6 +310,7 @@ def create_branch_admin(
         email=admin.email,
         phone=admin.phone,
         branch_admin_id=branch_admin_id,
+        allowed_ip_address=str(admin.allowed_ip_address),
         password_hash=hashed_password,
         role="branch_admin",
         branch_id=admin.branch_id,
@@ -450,6 +462,7 @@ def update_branch_admin(
     admin.name = admin_data.name
     admin.email = admin_data.email
     admin.phone = admin_data.phone
+    admin.allowed_ip_address = str(admin_data.allowed_ip_address)
 
     if admin_data.password:
         admin.password_hash = hash_password(

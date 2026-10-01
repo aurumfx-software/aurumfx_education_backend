@@ -32,7 +32,7 @@ def get_branches(
         .order_by(Branch.name.asc())
         .all()
     )
-    return [
+    enquiry_items = [
         {
             "branch_id": branch.id,
             "branch_name": branch.name,
@@ -80,7 +80,19 @@ def get_branch_enquiries(
             "qualification": enquiry.qualification,
             "message": enquiry.message,
             "status": enquiry.status,
+            "branch_admin_status": enquiry.branch_admin_status,
+            "branch_admin_read_at": enquiry.branch_admin_read_at,
             "created_at": enquiry.created_at,
         }
         for enquiry in enquiries
     ]
+    return {
+        "branch_id": branch.id,
+        "branch_name": branch.name,
+        "total_enquiries": len(enquiry_items),
+        "pending_enquiries": sum(
+            item["branch_admin_status"] == "pending"
+            for item in enquiry_items
+        ),
+        "enquiries": enquiry_items,
+    }
