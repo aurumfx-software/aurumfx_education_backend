@@ -124,6 +124,7 @@ def get_branches(
 ):
     branches = (
         db.query(Branch)
+        .filter(Branch.status == "Active")
         .order_by(Branch.name.asc())
         .all()
     )

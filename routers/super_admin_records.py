@@ -258,7 +258,12 @@ def get_record_branches(
     db: Session = Depends(get_db),
     current_admin: User = Depends(get_current_super_admin),
 ):
-    branches = db.query(Branch).order_by(Branch.name.asc()).all()
+    branches = (
+        db.query(Branch)
+        .filter(Branch.status == "Active")
+        .order_by(Branch.name.asc())
+        .all()
+    )
     return [
         {
             "branch_id": branch.id,
