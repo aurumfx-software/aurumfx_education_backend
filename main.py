@@ -24,6 +24,8 @@ from routers import (
     branch_announcements,
     payments,
     staff,
+    staff_portal,
+    branch_admin_staff_verification,
     super_admin_staff,
     super_admin_courses,
     branch_dashboard,
@@ -230,6 +232,30 @@ try:
             )
         )
 
+        for column_definition in (
+            "verification_status VARCHAR NOT NULL DEFAULT 'pending'",
+            "aadhaar_number VARCHAR",
+            "pan_number VARCHAR",
+            "bank_account_number VARCHAR",
+            "bank_ifsc VARCHAR",
+            "aadhaar_front_key VARCHAR",
+            "aadhaar_back_key VARCHAR",
+            "pan_card_key VARCHAR",
+            "bank_passbook_key VARCHAR",
+            "other_document_key VARCHAR",
+            "other_document_name VARCHAR",
+            "verification_submitted_at TIMESTAMP WITH TIME ZONE",
+            "verification_approved_at TIMESTAMP WITH TIME ZONE",
+            "verification_rejection_reason TEXT",
+            "verification_rejected_at TIMESTAMP WITH TIME ZONE",
+        ):
+            conn.execute(
+                text(
+                    "ALTER TABLE staff "
+                    f"ADD COLUMN IF NOT EXISTS {column_definition};"
+                )
+            )
+
         conn.execute(
             text(
                 "UPDATE staff "
@@ -321,6 +347,9 @@ app.include_router(payments.router)
 
 # Branch admin staff routes
 app.include_router(staff.router)
+
+app.include_router(staff_portal.router)
+app.include_router(branch_admin_staff_verification.router)
 
 # Super admin staff routes
 app.include_router(super_admin_staff.router)

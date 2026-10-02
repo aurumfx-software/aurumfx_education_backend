@@ -1883,6 +1883,82 @@ class Staff(Base):
         nullable=False
     )
 
+    verification_status = Column(
+        String,
+        default="pending",
+        nullable=False
+    )
+
+    aadhaar_number = Column(
+        String,
+        nullable=True
+    )
+
+    pan_number = Column(
+        String,
+        nullable=True
+    )
+
+    bank_account_number = Column(
+        String,
+        nullable=True
+    )
+
+    bank_ifsc = Column(
+        String,
+        nullable=True
+    )
+
+    aadhaar_front_key = Column(
+        String,
+        nullable=True
+    )
+
+    aadhaar_back_key = Column(
+        String,
+        nullable=True
+    )
+
+    pan_card_key = Column(
+        String,
+        nullable=True
+    )
+
+    bank_passbook_key = Column(
+        String,
+        nullable=True
+    )
+
+    other_document_key = Column(
+        String,
+        nullable=True
+    )
+
+    other_document_name = Column(
+        String,
+        nullable=True
+    )
+
+    verification_submitted_at = Column(
+        DateTime(timezone=True),
+        nullable=True
+    )
+
+    verification_approved_at = Column(
+        DateTime(timezone=True),
+        nullable=True
+    )
+
+    verification_rejection_reason = Column(
+        String,
+        nullable=True
+    )
+
+    verification_rejected_at = Column(
+        DateTime(timezone=True),
+        nullable=True
+    )
+
     status = Column(
         String,
         default="Active",

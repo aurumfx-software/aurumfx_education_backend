@@ -17,6 +17,7 @@ from schemas.user import (
     BranchAdminLogin,
     SuperAdminLogin,
 )
+from schemas.staff import StaffLogin
 
 from utils.password import hash_password, verify_password
 from utils.jwt import create_access_token, decode_access_token
@@ -519,7 +520,7 @@ def branch_admin_login(
     if not db_user:
         raise HTTPException(
             status_code=401,
-            detail="Invalid email or password"
+            detail="Invalid branch admin ID or password"
         )
 
     # ==========================================
@@ -534,7 +535,7 @@ def branch_admin_login(
     if not password_correct:
         raise HTTPException(
             status_code=401,
-            detail="Invalid email or password"
+            detail="Invalid branch admin ID or password"
         )
 
     # ==========================================
@@ -613,6 +614,65 @@ def branch_admin_login(
         "user_id": db_user.id,
         "name": db_user.name,
         "email": db_user.email
+    }
+
+
+@router.post(
+    "/staff-login",
+    tags=["Staff Authentication"],
+)
+def staff_login(
+    login_data: StaffLogin,
+    db: Session = Depends(get_db),
+):
+    staff_code = login_data.staff_code.strip().upper()
+    staff = (
+        db.query(Staff, User)
+        .join(User, User.id == Staff.user_id)
+        .filter(
+            Staff.staff_code == staff_code,
+            Staff.status == "Active",
+            User.role == "staff",
+            User.status == "Active",
+        )
+        .first()
+    )
+    if not staff:
+        raise HTTPException(
+            status_code=401,
+            detail="Invalid staff ID or password",
+        )
+
+    staff_record, staff_user = staff
+    if not verify_password(login_data.password, staff_user.password_hash):
+        raise HTTPException(
+            status_code=401,
+            detail="Invalid staff ID or password",
+        )
+
+    branch = db.query(Branch).filter(Branch.id == staff_record.branch_id).first()
+    if not branch or branch.status != "Active":
+        raise HTTPException(
+            status_code=403,
+            detail="Staff branch is inactive",
+        )
+
+    token = create_access_token(
+        user_id=staff_user.id,
+        role=staff_user.role,
+    )
+    return {
+        "message": "Staff login successful",
+        "access_token": token,
+        "token_type": "bearer",
+        "role": staff_user.role,
+        "user_id": staff_user.id,
+        "staff_id": staff_record.id,
+        "staff_code": staff_record.staff_code,
+        "name": staff_record.name,
+        "email": staff_record.email,
+        "branch_id": staff_record.branch_id,
+        "verification_status": staff_record.verification_status,
     }
 
 

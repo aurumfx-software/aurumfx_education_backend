@@ -7,6 +7,7 @@ from sqlalchemy.orm import Session
 from database import SessionLocal
 from database_models import Branch, Course, Staff, StaffCourse, User
 from routers.auth import get_current_super_admin
+from routers.staff_portal import private_document_url
 from schemas.staff import StaffCreate, StaffResponse, StaffUpdate
 from utils.password import hash_password
 
@@ -102,6 +103,32 @@ def build_staff_response(db: Session, staff: Staff):
     }
 
 
+def build_super_admin_staff_response(db: Session, staff: Staff, branch: Branch):
+    return {
+        **build_staff_response(db, staff),
+        "branch_name": branch.name,
+        "branch_location": branch.location,
+        "branch_status": branch.status,
+        "verification_status": staff.verification_status,
+        "aadhaar_number": staff.aadhaar_number,
+        "pan_number": staff.pan_number,
+        "bank_account_number": staff.bank_account_number,
+        "bank_ifsc": staff.bank_ifsc,
+        "documents": {
+            "aadhaar_front_url": private_document_url(staff.aadhaar_front_key),
+            "aadhaar_back_url": private_document_url(staff.aadhaar_back_key),
+            "pan_card_url": private_document_url(staff.pan_card_key),
+            "bank_passbook_url": private_document_url(staff.bank_passbook_key),
+            "other_document_url": private_document_url(staff.other_document_key),
+            "other_document_name": staff.other_document_name,
+        },
+        "verification_submitted_at": staff.verification_submitted_at,
+        "verification_approved_at": staff.verification_approved_at,
+        "verification_rejection_reason": staff.verification_rejection_reason,
+        "verification_rejected_at": staff.verification_rejected_at,
+    }
+
+
 def get_active_staff(db: Session, branch_id: int, staff_id: int) -> Staff:
     staff = (
         db.query(Staff)
@@ -164,14 +191,7 @@ def get_all_staff(
 
     staff_details = []
     for staff, branch in rows:
-        staff_details.append(
-            {
-                **build_staff_response(db, staff),
-                "branch_name": branch.name,
-                "branch_location": branch.location,
-                "branch_status": branch.status,
-            }
-        )
+        staff_details.append(build_super_admin_staff_response(db, staff, branch))
 
     return {
         "total_staff": int(total_staff),
@@ -205,10 +225,7 @@ def get_branch_courses(
     return [{"id": course.id, "title": course.title} for course in courses]
 
 
-@router.get(
-    "/branches/{branch_id}/staff",
-    response_model=list[StaffResponse],
-)
+@router.get("/branches/{branch_id}/staff")
 def get_branch_staff(
     branch_id: int,
     db: Session = Depends(get_db),
@@ -219,12 +236,23 @@ def get_branch_staff(
         db.query(Staff)
         .filter(
             Staff.branch_id == branch_id,
-            Staff.status == "Active",
         )
         .order_by(Staff.created_at.desc())
         .all()
     )
-    return [build_staff_response(db, staff) for staff in staff_members]
+    branch = get_branch(db, branch_id)
+    active_staff = sum(staff.status == "Active" for staff in staff_members)
+    return {
+        "branch_id": branch.id,
+        "branch_name": branch.name,
+        "total_staff": len(staff_members),
+        "active_staff": active_staff,
+        "inactive_staff": len(staff_members) - active_staff,
+        "staff": [
+            build_super_admin_staff_response(db, staff, branch)
+            for staff in staff_members
+        ],
+    }
 
 
 @router.post(

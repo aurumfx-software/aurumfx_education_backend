@@ -17,6 +17,15 @@ class StaffCreate(BaseModel):
     salary: float
 
 
+class StaffLogin(BaseModel):
+    staff_code: str
+    password: str
+
+
+class StaffVerificationReject(BaseModel):
+    reason: str = Field(min_length=1, max_length=1000)
+
+
 # ==========================================
 # UPDATE STAFF
 # ==========================================
