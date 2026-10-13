@@ -2007,6 +2007,58 @@ class StaffCourse(Base):
 
 
 # ============================================================
+# COURSE TASKS AND STUDENT ASSIGNMENTS
+# ============================================================
+
+class CourseTask(Base):
+    __tablename__ = "course_tasks"
+
+    id = Column(Integer, primary_key=True, index=True)
+    course_id = Column(
+        Integer,
+        ForeignKey("courses.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    staff_id = Column(
+        Integer,
+        ForeignKey("staff.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    title = Column(String, nullable=False)
+    description = Column(String, nullable=False)
+    due_date = Column(Date, nullable=True)
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+
+
+class StudentTaskAssignment(Base):
+    __tablename__ = "student_task_assignments"
+    __table_args__ = (
+        UniqueConstraint(
+            "task_id",
+            "student_id",
+            name="uq_student_task_assignment",
+        ),
+    )
+
+    id = Column(Integer, primary_key=True, index=True)
+    task_id = Column(
+        Integer,
+        ForeignKey("course_tasks.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    student_id = Column(
+        Integer,
+        ForeignKey("users.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    assigned_at = Column(DateTime(timezone=True), server_default=func.now())
+
+
+# ============================================================
 # STAFF ATTENDANCE
 # ============================================================
 

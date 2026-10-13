@@ -4,11 +4,22 @@ from datetime import datetime, timezone
 from pathlib import PurePath
 
 from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile
+from sqlalchemy import func
 from sqlalchemy.orm import Session
 
 from database import SessionLocal
-from database_models import Branch, Course, Staff, StaffCourse, User
+from database_models import (
+    Branch,
+    Course,
+    CourseTask,
+    Enrollment,
+    Staff,
+    StaffCourse,
+    StudentTaskAssignment,
+    User,
+)
 from routers.auth import get_current_user
+from schemas.staff_task import StaffTaskCreate
 from utils.spaces import SPACES_BUCKET, spaces_client
 
 
@@ -58,12 +69,22 @@ def get_staff_courses(db: Session, staff: Staff):
     courses = (
         db.query(Course)
         .join(StaffCourse, StaffCourse.course_id == Course.id)
-        .filter(StaffCourse.staff_id == staff.id)
+        .filter(
+            StaffCourse.staff_id == staff.id,
+            Course.branch_id == staff.branch_id,
+        )
         .order_by(Course.title.asc())
         .all()
     )
     if not courses:
-        course = db.query(Course).filter(Course.id == staff.course_id).first()
+        course = (
+            db.query(Course)
+            .filter(
+                Course.id == staff.course_id,
+                Course.branch_id == staff.branch_id,
+            )
+            .first()
+        )
         if course:
             courses = [course]
     return courses
@@ -231,6 +252,289 @@ def get_my_staff_profile(
     staff: Staff = Depends(get_current_staff_record),
 ):
     return build_staff_profile(db, staff)
+
+
+@router.get("/dashboard")
+def get_my_staff_dashboard(
+    db: Session = Depends(get_db),
+    staff: Staff = Depends(get_current_staff_record),
+):
+    branch = db.query(Branch).filter(Branch.id == staff.branch_id).first()
+    if not branch:
+        raise HTTPException(status_code=404, detail="Staff branch not found")
+
+    courses = get_staff_courses(db, staff)
+    course_ids = [course.id for course in courses]
+    students_by_course = {}
+    total_assigned_course_students = 0
+    if courses:
+        student_counts = (
+            db.query(
+                Enrollment.course_id,
+                func.count(func.distinct(Enrollment.user_id)).label("student_count"),
+            )
+            .filter(
+                Enrollment.course_id.in_(course_ids),
+                Enrollment.branch_id == staff.branch_id,
+            )
+            .group_by(Enrollment.course_id)
+            .all()
+        )
+        students_by_course = {
+            row.course_id: row.student_count for row in student_counts
+        }
+        total_assigned_course_students = (
+            db.query(func.count(func.distinct(Enrollment.user_id)))
+            .filter(
+                Enrollment.course_id.in_(course_ids),
+                Enrollment.branch_id == staff.branch_id,
+            )
+            .scalar()
+            or 0
+        )
+    branch_total_students = (
+        db.query(func.count(func.distinct(Enrollment.user_id)))
+        .filter(Enrollment.branch_id == staff.branch_id)
+        .scalar()
+        or 0
+    )
+
+    return {
+        "staff": {
+            "staff_id": staff.id,
+            "staff_code": staff.staff_code,
+            "name": staff.name,
+        },
+        "branch": {
+            "branch_id": branch.id,
+            "branch_name": branch.name,
+            "branch_location": branch.location,
+        },
+        "summary": {
+            "total_assigned_courses": len(courses),
+            "total_students_in_assigned_courses": total_assigned_course_students,
+            "branch_total_students": branch_total_students,
+        },
+        "assigned_courses": [
+            {
+                "course_id": course.id,
+                "course_title": course.title,
+                "total_students": students_by_course.get(course.id, 0),
+            }
+            for course in courses
+        ],
+    }
+
+
+@router.get("/courses/{course_id}/students")
+def get_my_course_students(
+    course_id: int,
+    db: Session = Depends(get_db),
+    staff: Staff = Depends(get_current_staff_record),
+):
+    course = next(
+        (course for course in get_staff_courses(db, staff) if course.id == course_id),
+        None,
+    )
+    if not course:
+        raise HTTPException(
+            status_code=404,
+            detail="Course is not assigned to this staff member",
+        )
+
+    enrollment_rows = (
+        db.query(Enrollment, User)
+        .join(User, User.id == Enrollment.user_id)
+        .filter(
+            Enrollment.course_id == course.id,
+            Enrollment.branch_id == staff.branch_id,
+        )
+        .order_by(Enrollment.id.desc())
+        .all()
+    )
+
+    students = []
+    seen_student_ids = set()
+    for enrollment, user in enrollment_rows:
+        if enrollment.user_id in seen_student_ids:
+            continue
+        seen_student_ids.add(enrollment.user_id)
+        students.append(
+            {
+                "student_id": user.id,
+                "name": enrollment.name or user.name,
+                "email": enrollment.email or user.email,
+                "phone": enrollment.phone or user.phone,
+                "profile_image": user.profile_image,
+                "parent_name": enrollment.parent_name or user.parent_name,
+                "parent_phone": enrollment.parent_phone or user.parent_phone,
+                "highest_qualification": (
+                    enrollment.highest_qualification or user.highest_qualification
+                ),
+                "address": enrollment.address or user.address,
+                "account_status": user.status,
+                "enrollment": {
+                    "enrollment_id": enrollment.id,
+                    "admission_date": enrollment.admission_date,
+                    "enrolled_at": enrollment.created_at,
+                    "course_status": enrollment.course_status,
+                    "branch_approval_status": enrollment.branch_approval_status,
+                    "super_admin_approval_status": (
+                        enrollment.super_admin_approval_status
+                    ),
+                },
+            }
+        )
+
+    return {
+        "course": {
+            "course_id": course.id,
+            "course_title": course.title,
+            "branch_id": course.branch_id,
+        },
+        "total_students": len(students),
+        "students": students,
+    }
+
+
+@router.post("/courses/{course_id}/assignments", status_code=201)
+def create_course_assignment(
+    course_id: int,
+    task_data: StaffTaskCreate,
+    db: Session = Depends(get_db),
+    staff: Staff = Depends(get_current_staff_record),
+):
+    course = next(
+        (course for course in get_staff_courses(db, staff) if course.id == course_id),
+        None,
+    )
+    if not course:
+        raise HTTPException(
+            status_code=404,
+            detail="Course is not assigned to this staff member",
+        )
+
+    enrolled_student_ids = {
+        row.user_id
+        for row in (
+            db.query(Enrollment.user_id)
+            .filter(
+                Enrollment.course_id == course.id,
+                Enrollment.branch_id == staff.branch_id,
+            )
+            .distinct()
+            .all()
+        )
+    }
+    if task_data.student_ids is None:
+        student_ids = sorted(enrolled_student_ids)
+    else:
+        student_ids = list(dict.fromkeys(task_data.student_ids))
+        unenrolled_ids = set(student_ids) - enrolled_student_ids
+        if unenrolled_ids:
+            raise HTTPException(
+                status_code=404,
+                detail="One or more selected students are not enrolled in this course",
+            )
+
+    if not student_ids:
+        raise HTTPException(
+            status_code=400,
+            detail="There are no enrolled students to assign this task to",
+        )
+
+    task = CourseTask(
+        course_id=course.id,
+        staff_id=staff.id,
+        title=task_data.title.strip(),
+        description=task_data.description.strip(),
+        due_date=task_data.due_date,
+    )
+    db.add(task)
+    db.flush()
+    db.add_all(
+        [
+            StudentTaskAssignment(task_id=task.id, student_id=student_id)
+            for student_id in student_ids
+        ]
+    )
+    db.commit()
+    db.refresh(task)
+
+    return {
+        "task_id": task.id,
+        "course_id": course.id,
+        "course_title": course.title,
+        "title": task.title,
+        "description": task.description,
+        "due_date": task.due_date,
+        "created_at": task.created_at,
+        "assigned_student_count": len(student_ids),
+        "student_ids": student_ids,
+    }
+
+
+@router.get("/courses/{course_id}/assignments")
+def get_course_assignments(
+    course_id: int,
+    db: Session = Depends(get_db),
+    staff: Staff = Depends(get_current_staff_record),
+):
+    course = next(
+        (course for course in get_staff_courses(db, staff) if course.id == course_id),
+        None,
+    )
+    if not course:
+        raise HTTPException(
+            status_code=404,
+            detail="Course is not assigned to this staff member",
+        )
+
+    tasks = (
+        db.query(CourseTask)
+        .filter(
+            CourseTask.course_id == course.id,
+            CourseTask.staff_id == staff.id,
+        )
+        .order_by(CourseTask.created_at.desc(), CourseTask.id.desc())
+        .all()
+    )
+    assignments_by_task = {task.id: [] for task in tasks}
+    if tasks:
+        assignment_rows = (
+            db.query(StudentTaskAssignment, User)
+            .join(User, User.id == StudentTaskAssignment.student_id)
+            .filter(StudentTaskAssignment.task_id.in_(assignments_by_task))
+            .order_by(StudentTaskAssignment.assigned_at.asc())
+            .all()
+        )
+        for assignment, student in assignment_rows:
+            assignments_by_task[assignment.task_id].append(
+                {
+                    "student_id": student.id,
+                    "name": student.name,
+                    "email": student.email,
+                    "assigned_at": assignment.assigned_at,
+                }
+            )
+
+    return {
+        "course_id": course.id,
+        "course_title": course.title,
+        "total_assignments": len(tasks),
+        "assignments": [
+            {
+                "task_id": task.id,
+                "title": task.title,
+                "description": task.description,
+                "due_date": task.due_date,
+                "created_at": task.created_at,
+                "assigned_student_count": len(assignments_by_task[task.id]),
+                "students": assignments_by_task[task.id],
+            }
+            for task in tasks
+        ],
+    }
 
 
 @router.put("/me/documents")

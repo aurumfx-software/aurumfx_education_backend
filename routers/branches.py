@@ -310,7 +310,6 @@ def create_branch_admin(
         email=admin.email,
         phone=admin.phone,
         branch_admin_id=branch_admin_id,
-        allowed_ip_address=str(admin.allowed_ip_address),
         password_hash=hashed_password,
         role="branch_admin",
         branch_id=admin.branch_id,
@@ -462,7 +461,6 @@ def update_branch_admin(
     admin.name = admin_data.name
     admin.email = admin_data.email
     admin.phone = admin_data.phone
-    admin.allowed_ip_address = str(admin_data.allowed_ip_address)
 
     if admin_data.password:
         admin.password_hash = hash_password(

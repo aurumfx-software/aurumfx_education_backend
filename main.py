@@ -36,7 +36,8 @@ from routers import (
     staff_attendance,
     branch_admin_attendance,
     messages,
-    admissions
+    admissions,
+    student_assignments,
 )
 
 
@@ -349,6 +350,7 @@ app.include_router(payments.router)
 app.include_router(staff.router)
 
 app.include_router(staff_portal.router)
+app.include_router(student_assignments.router)
 app.include_router(branch_admin_staff_verification.router)
 
 # Super admin staff routes
