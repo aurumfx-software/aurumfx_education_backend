@@ -874,6 +874,7 @@ from sqlalchemy import (
     Boolean,
     DateTime,
     Date,
+    Text,
     ForeignKey,
     UniqueConstraint
 )
@@ -2029,6 +2030,7 @@ class CourseTask(Base):
     title = Column(String, nullable=False)
     description = Column(String, nullable=False)
     due_date = Column(Date, nullable=True)
+    max_marks = Column(Float, nullable=False, default=100)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
 
 
@@ -2056,6 +2058,12 @@ class StudentTaskAssignment(Base):
         index=True,
     )
     assigned_at = Column(DateTime(timezone=True), server_default=func.now())
+    submission_key = Column(String, nullable=True)
+    submission_filename = Column(String, nullable=True)
+    submitted_at = Column(DateTime(timezone=True), nullable=True)
+    marks_obtained = Column(Float, nullable=True)
+    feedback = Column(Text, nullable=True)
+    marked_at = Column(DateTime(timezone=True), nullable=True)
 
 
 # ============================================================

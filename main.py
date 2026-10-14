@@ -233,6 +233,29 @@ try:
             )
         )
 
+        conn.execute(
+            text(
+                "ALTER TABLE course_tasks "
+                "ADD COLUMN IF NOT EXISTS max_marks FLOAT "
+                "NOT NULL DEFAULT 100;"
+            )
+        )
+
+        for column_definition in (
+            "submission_key VARCHAR",
+            "submission_filename VARCHAR",
+            "submitted_at TIMESTAMP WITH TIME ZONE",
+            "marks_obtained FLOAT",
+            "feedback TEXT",
+            "marked_at TIMESTAMP WITH TIME ZONE",
+        ):
+            conn.execute(
+                text(
+                    "ALTER TABLE student_task_assignments "
+                    f"ADD COLUMN IF NOT EXISTS {column_definition};"
+                )
+            )
+
         for column_definition in (
             "verification_status VARCHAR NOT NULL DEFAULT 'pending'",
             "aadhaar_number VARCHAR",
@@ -259,10 +282,36 @@ try:
 
         conn.execute(
             text(
-                "UPDATE staff "
-                "SET staff_code = 'STF-' || branch_id || '-' || "
-                "upper(substr(md5(random()::text || id::text), 1, 10)) "
-                "WHERE staff_code IS NULL;"
+                """
+                DO $$
+                DECLARE
+                    staff_record RECORD;
+                    candidate_code VARCHAR;
+                    attempts INTEGER;
+                BEGIN
+                    FOR staff_record IN
+                        SELECT id FROM staff WHERE staff_code IS NULL
+                    LOOP
+                        attempts := 0;
+                        LOOP
+                            candidate_code :=
+                                'STF' || (100 + floor(random() * 900)::INTEGER)::TEXT;
+                            EXIT WHEN NOT EXISTS (
+                                SELECT 1 FROM staff
+                                WHERE staff_code = candidate_code
+                            );
+                            attempts := attempts + 1;
+                            IF attempts >= 900 THEN
+                                RAISE EXCEPTION
+                                    'No unused three-digit staff codes are available';
+                            END IF;
+                        END LOOP;
+                        UPDATE staff
+                        SET staff_code = candidate_code
+                        WHERE id = staff_record.id;
+                    END LOOP;
+                END $$;
+                """
             )
         )
 

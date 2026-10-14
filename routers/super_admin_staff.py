@@ -1,5 +1,3 @@
-import uuid
-
 from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy import func
 from sqlalchemy.orm import Session
@@ -10,6 +8,7 @@ from routers.auth import get_current_super_admin
 from routers.staff_portal import private_document_url
 from schemas.staff import StaffCreate, StaffResponse, StaffUpdate
 from utils.password import hash_password
+from utils.staff_code import generate_staff_code
 
 
 router = APIRouter(
@@ -99,6 +98,9 @@ def build_staff_response(db: Session, staff: Staff):
         "address": staff.address,
         "salary": staff.salary,
         "status": staff.status,
+        "registration_status": "success",
+        "document_status": staff.verification_status,
+        "verification_status": staff.verification_status,
         "created_at": staff.created_at,
     }
 
@@ -110,6 +112,7 @@ def build_super_admin_staff_response(db: Session, staff: Staff, branch: Branch):
         "branch_location": branch.location,
         "branch_status": branch.status,
         "verification_status": staff.verification_status,
+        "document_status": staff.verification_status,
         "aadhaar_number": staff.aadhaar_number,
         "pan_number": staff.pan_number,
         "bank_account_number": staff.bank_account_number,
@@ -291,7 +294,7 @@ def create_branch_staff(
         user_id=new_user.id,
         branch_id=branch_id,
         course_id=courses[0].id,
-        staff_code=f"STF-{branch_id}-{uuid.uuid4().hex[:10].upper()}",
+        staff_code=generate_staff_code(db),
         name=staff_data.name,
         email=staff_data.email,
         phone=staff_data.phone,

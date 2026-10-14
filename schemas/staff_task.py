@@ -7,6 +7,7 @@ class StaffTaskCreate(BaseModel):
     title: str = Field(min_length=1, max_length=255)
     description: str = Field(min_length=1)
     due_date: date | None = None
+    max_marks: float = Field(default=100, gt=0)
     student_ids: list[int] | None = Field(default=None, min_length=1)
 
     @field_validator("title", "description")

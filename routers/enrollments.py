@@ -60,6 +60,17 @@ def enrollment_payment_summary(db: Session, enrollment: Enrollment):
         if installment.due_date <= date.today()
         and installment.amount - installment.paid_amount > 0
     ]
+    next_installment = next(
+        (
+            installment
+            for installment in sorted(
+                installments,
+                key=lambda item: (item.due_date, item.installment_number),
+            )
+            if installment.amount - installment.paid_amount > 0
+        ),
+        None,
+    )
 
     return {
         "total_paid": enrollment.total_paid or 0,
@@ -72,7 +83,22 @@ def enrollment_payment_summary(db: Session, enrollment: Enrollment):
         "remaining_installment_count": (
             installment_count - paid_installment_count
         ),
+        "payment_plan": "installment" if installment_count else "full_payment",
         "due_installment_count": len(due_installments),
+        "next_installment": (
+            {
+                "installment_id": next_installment.id,
+                "installment_number": next_installment.installment_number,
+                "due_date": next_installment.due_date,
+                "amount": next_installment.amount,
+                "remaining_amount": round(
+                    next_installment.amount - next_installment.paid_amount, 2
+                ),
+                "status": next_installment.status,
+            }
+            if next_installment
+            else None
+        ),
         "branch_approval_status": enrollment.branch_approval_status,
         "super_admin_approval_status": enrollment.super_admin_approval_status,
         "super_admin_rejection_reason": enrollment.super_admin_rejection_reason,
@@ -344,11 +370,21 @@ def get_my_enrollments(
     results = (
         db.query(
             Enrollment,
-            Course
+            Course,
+            Branch,
+            User,
         )
         .join(
             Course,
             Enrollment.course_id == Course.id
+        )
+        .join(
+            Branch,
+            Enrollment.branch_id == Branch.id
+        )
+        .join(
+            User,
+            Enrollment.user_id == User.id
         )
         .filter(
             Enrollment.user_id == current_user.id
@@ -366,19 +402,52 @@ def get_my_enrollments(
             "course_id": enrollment.course_id,
             "branch_id": enrollment.branch_id,
 
-            "name": enrollment.name,
-            "email": enrollment.email,
-            "phone": enrollment.phone,
+            "name": enrollment.name or student.name,
+            "email": enrollment.email or student.email,
+            "phone": enrollment.phone or student.phone,
 
-            "parent_name": enrollment.parent_name,
-            "parent_phone": enrollment.parent_phone,
+            "parent_name": enrollment.parent_name or student.parent_name,
+            "parent_phone": enrollment.parent_phone or student.parent_phone,
 
-            "highest_qualification": enrollment.highest_qualification,
-            "address": enrollment.address,
+            "highest_qualification": (
+                enrollment.highest_qualification or student.highest_qualification
+            ),
+            "address": enrollment.address or student.address,
 
-            "course_title": enrollment.course_title,
+            "course_title": enrollment.course_title or course.title,
             "course_image": course.image,
             "course_duration": course.duration,
+            "branch_details": {
+                "id": branch.id,
+                "name": branch.name,
+                "location": branch.location,
+                "phone": branch.phone,
+                "email": branch.email,
+                "status": branch.status,
+            },
+            "course_details": {
+                "id": course.id,
+                "title": enrollment.course_title or course.title,
+                "duration": course.duration,
+                "start_date": course.start_date,
+                "end_date": course.end_date,
+                "image": course.image,
+                "category": course.category,
+                "level": course.level,
+            },
+            "student_details": {
+                "id": student.id,
+                "name": enrollment.name or student.name,
+                "email": enrollment.email or student.email,
+                "phone": enrollment.phone or student.phone,
+                "parent_name": enrollment.parent_name or student.parent_name,
+                "parent_phone": enrollment.parent_phone or student.parent_phone,
+                "highest_qualification": (
+                    enrollment.highest_qualification
+                    or student.highest_qualification
+                ),
+                "address": enrollment.address or student.address,
+            },
 
             "total_fee": enrollment.total_fee,
             **enrollment_payment_summary(db, enrollment),
@@ -398,7 +467,7 @@ def get_my_enrollments(
             "created_at": enrollment.created_at
         }
 
-        for enrollment, course in results
+        for enrollment, course, branch, student in results
     ]
 
 

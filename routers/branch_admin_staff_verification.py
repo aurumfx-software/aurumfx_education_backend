@@ -1,6 +1,6 @@
 from datetime import datetime, timezone
 
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 
 from database import SessionLocal
@@ -34,36 +34,66 @@ def require_branch_admin(current_user: User):
         )
 
 
-@router.get("")
-def get_branch_staff_for_verification(
-    verification_status: str = Query(default="pending"),
+def get_branch_staff_by_verification_status(
+    verification_status: str,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
     require_branch_admin(current_user)
-    if verification_status not in {"pending", "approved", "rejected", "all"}:
-        raise HTTPException(
-            status_code=400,
-            detail="verification_status must be pending, approved, rejected, or all",
-        )
 
     query = db.query(Staff).filter(
         Staff.branch_id == current_user.branch_id,
         Staff.status == "Active",
+        Staff.verification_submitted_at.isnot(None),
+        Staff.verification_status == verification_status,
     )
-    if verification_status != "all":
-        query = query.filter(Staff.verification_status == verification_status)
 
     staff_members = query.order_by(Staff.created_at.desc(), Staff.id.desc()).all()
     return {
         "branch_id": current_user.branch_id,
         "verification_status": verification_status,
+        "document_status": verification_status,
         "total_staff": len(staff_members),
-        "pending_staff": sum(
-            staff.verification_status == "pending" for staff in staff_members
-        ),
+        "pending_staff": len(staff_members) if verification_status == "pending" else 0,
         "staff": [build_staff_profile(db, staff) for staff in staff_members],
     }
+
+
+@router.get("")
+@router.get("/pending")
+def get_pending_branch_staff_verification(
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    return get_branch_staff_by_verification_status(
+        "pending",
+        db=db,
+        current_user=current_user,
+    )
+
+
+@router.get("/approved")
+def get_approved_branch_staff_documents(
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    return get_branch_staff_by_verification_status(
+        "approved",
+        db=db,
+        current_user=current_user,
+    )
+
+
+@router.get("/rejected")
+def get_rejected_branch_staff_documents(
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    return get_branch_staff_by_verification_status(
+        "rejected",
+        db=db,
+        current_user=current_user,
+    )
 
 
 @router.put("/{staff_id}/approve")
@@ -91,6 +121,11 @@ def approve_staff_documents(
         raise HTTPException(
             status_code=409,
             detail="Only pending staff submissions can be approved",
+        )
+    if staff.verification_submitted_at is None:
+        raise HTTPException(
+            status_code=409,
+            detail="Staff documents have not been submitted",
         )
 
     require_documents_complete(staff)
@@ -129,6 +164,11 @@ def reject_staff_documents(
         raise HTTPException(
             status_code=409,
             detail="Only pending staff submissions can be rejected",
+        )
+    if staff.verification_submitted_at is None:
+        raise HTTPException(
+            status_code=409,
+            detail="Staff documents have not been submitted",
         )
 
     reason = rejection_data.reason.strip()

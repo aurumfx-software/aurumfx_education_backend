@@ -14,6 +14,46 @@ class EnrollmentInstallmentDetail(BaseModel):
     paid_date: date | None = None
 
 
+class EnrollmentBranchDetail(BaseModel):
+    id: int
+    name: str
+    location: str
+    phone: str | None = None
+    email: str | None = None
+    status: str
+
+
+class EnrollmentCourseDetail(BaseModel):
+    id: int
+    title: str
+    duration: str
+    start_date: date | None = None
+    end_date: date | None = None
+    image: str | None = None
+    category: str | None = None
+    level: str | None = None
+
+
+class EnrollmentStudentDetail(BaseModel):
+    id: int
+    name: str
+    email: str
+    phone: str | None = None
+    parent_name: str | None = None
+    parent_phone: str | None = None
+    highest_qualification: str | None = None
+    address: str | None = None
+
+
+class NextInstallmentDetail(BaseModel):
+    installment_id: int
+    installment_number: int
+    due_date: date
+    amount: float
+    remaining_amount: float
+    status: str
+
+
 class EnrollmentInstallmentUpdate(BaseModel):
     installment_number: int = Field(ge=1)
     amount: float = Field(gt=0)
@@ -63,7 +103,7 @@ class EnrollmentResponse(BaseModel):
 
     name: str
     email: str
-    phone: str
+    phone: str | None = None
 
     parent_name: str | None = None
     parent_phone: str | None = None
@@ -74,6 +114,10 @@ class EnrollmentResponse(BaseModel):
     course_title: str
     course_image: str | None = None
     course_duration: str
+    branch_details: EnrollmentBranchDetail
+    course_details: EnrollmentCourseDetail
+    student_details: EnrollmentStudentDetail
+    next_installment: NextInstallmentDetail | None = None
 
     total_fee: float
     total_paid: float = 0
@@ -81,6 +125,7 @@ class EnrollmentResponse(BaseModel):
     installment_count: int = 0
     paid_installment_count: int = 0
     remaining_installment_count: int = 0
+    payment_plan: str = "full_payment"
     due_installment_count: int = 0
     installments: list[EnrollmentInstallmentDetail] = Field(default_factory=list)
 

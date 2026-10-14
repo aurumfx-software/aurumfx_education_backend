@@ -65,5 +65,8 @@ class StaffResponse(BaseModel):
     salary: float
 
     status: str
+    registration_status: str = "success"
+    document_status: str = "pending"
+    verification_status: str = "pending"
 
     created_at: datetime

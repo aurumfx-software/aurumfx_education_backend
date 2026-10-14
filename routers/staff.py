@@ -1,5 +1,3 @@
-import uuid
-
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 
@@ -14,6 +12,7 @@ from schemas.staff import (
 
 from routers.auth import get_current_user
 from utils.password import hash_password
+from utils.staff_code import generate_staff_code
 
 
 router = APIRouter(
@@ -104,6 +103,9 @@ def build_staff_response(db: Session, staff: Staff):
         "address": staff.address,
         "salary": staff.salary,
         "status": staff.status,
+        "registration_status": "success",
+        "document_status": staff.verification_status,
+        "verification_status": staff.verification_status,
         "created_at": staff.created_at,
     }
 
@@ -194,10 +196,7 @@ def create_staff(
         user_id=new_user.id,
         branch_id=current_user.branch_id,
         course_id=courses[0].id,
-        staff_code=(
-            f"STF-{current_user.branch_id}-"
-            f"{uuid.uuid4().hex[:10].upper()}"
-        ),
+        staff_code=generate_staff_code(db),
 
         name=staff_data.name,
         email=staff_data.email,

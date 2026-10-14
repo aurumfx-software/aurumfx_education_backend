@@ -19,7 +19,9 @@ from database_models import (
     User,
 )
 from routers.auth import get_current_user
+from schemas.assignment import AssignmentGradeUpdate
 from schemas.staff_task import StaffTaskCreate
+from utils.assignment_files import assignment_pdf_url
 from utils.spaces import SPACES_BUCKET, spaces_client
 
 
@@ -120,6 +122,8 @@ def build_staff_profile(db: Session, staff: Staff):
         "address": staff.address,
         "salary": staff.salary,
         "employment_status": staff.status,
+        "registration_status": "success",
+        "document_status": staff.verification_status,
         "verification_status": staff.verification_status,
         "aadhaar_number": staff.aadhaar_number,
         "pan_number": staff.pan_number,
@@ -449,6 +453,7 @@ def create_course_assignment(
         title=task_data.title.strip(),
         description=task_data.description.strip(),
         due_date=task_data.due_date,
+        max_marks=task_data.max_marks,
     )
     db.add(task)
     db.flush()
@@ -468,6 +473,7 @@ def create_course_assignment(
         "title": task.title,
         "description": task.description,
         "due_date": task.due_date,
+        "max_marks": task.max_marks,
         "created_at": task.created_at,
         "assigned_student_count": len(student_ids),
         "student_ids": student_ids,
@@ -500,6 +506,7 @@ def get_course_assignments(
         .all()
     )
     assignments_by_task = {task.id: [] for task in tasks}
+    max_marks_by_task = {task.id: task.max_marks for task in tasks}
     if tasks:
         assignment_rows = (
             db.query(StudentTaskAssignment, User)
@@ -509,12 +516,28 @@ def get_course_assignments(
             .all()
         )
         for assignment, student in assignment_rows:
+            status = (
+                "verified"
+                if assignment.marks_obtained is not None
+                else "submitted"
+                if assignment.submitted_at is not None
+                else "pending_submission"
+            )
             assignments_by_task[assignment.task_id].append(
                 {
                     "student_id": student.id,
                     "name": student.name,
                     "email": student.email,
                     "assigned_at": assignment.assigned_at,
+                    "assignment_id": assignment.id,
+                    "status": status,
+                    "submission_url": assignment_pdf_url(assignment.submission_key),
+                    "submission_filename": assignment.submission_filename,
+                    "submitted_at": assignment.submitted_at,
+                    "marks_obtained": assignment.marks_obtained,
+                    "max_marks": max_marks_by_task[assignment.task_id],
+                    "feedback": assignment.feedback,
+                    "marked_at": assignment.marked_at,
                 }
             )
 
@@ -528,12 +551,123 @@ def get_course_assignments(
                 "title": task.title,
                 "description": task.description,
                 "due_date": task.due_date,
+                "max_marks": task.max_marks,
                 "created_at": task.created_at,
                 "assigned_student_count": len(assignments_by_task[task.id]),
                 "students": assignments_by_task[task.id],
             }
             for task in tasks
         ],
+    }
+
+
+@router.get("/courses/{course_id}/verified-assignments")
+def get_verified_assignments(
+    course_id: int,
+    db: Session = Depends(get_db),
+    staff: Staff = Depends(get_current_staff_record),
+):
+    course = next(
+        (course for course in get_staff_courses(db, staff) if course.id == course_id),
+        None,
+    )
+    if not course:
+        raise HTTPException(
+            status_code=404,
+            detail="Course is not assigned to this staff member",
+        )
+
+    rows = (
+        db.query(StudentTaskAssignment, CourseTask, User)
+        .join(CourseTask, CourseTask.id == StudentTaskAssignment.task_id)
+        .join(User, User.id == StudentTaskAssignment.student_id)
+        .filter(
+            CourseTask.course_id == course.id,
+            CourseTask.staff_id == staff.id,
+            StudentTaskAssignment.marks_obtained.isnot(None),
+        )
+        .order_by(
+            StudentTaskAssignment.marked_at.desc(),
+            StudentTaskAssignment.id.desc(),
+        )
+        .all()
+    )
+    return {
+        "course_id": course.id,
+        "course_title": course.title,
+        "total_verified": len(rows),
+        "assignments": [
+            {
+                "assignment_id": assignment.id,
+                "task_id": task.id,
+                "title": task.title,
+                "student_id": student.id,
+                "student_name": student.name,
+                "submission_url": assignment_pdf_url(assignment.submission_key),
+                "submission_filename": assignment.submission_filename,
+                "submitted_at": assignment.submitted_at,
+                "marks_obtained": assignment.marks_obtained,
+                "max_marks": task.max_marks,
+                "feedback": assignment.feedback,
+                "marked_at": assignment.marked_at,
+            }
+            for assignment, task, student in rows
+        ],
+    }
+
+
+@router.put("/assignments/{assignment_id}/marks")
+def update_assignment_marks(
+    assignment_id: int,
+    grade_data: AssignmentGradeUpdate,
+    db: Session = Depends(get_db),
+    staff: Staff = Depends(get_current_staff_record),
+):
+    assignment_row = (
+        db.query(StudentTaskAssignment, CourseTask)
+        .join(CourseTask, CourseTask.id == StudentTaskAssignment.task_id)
+        .filter(
+            StudentTaskAssignment.id == assignment_id,
+            CourseTask.staff_id == staff.id,
+        )
+        .first()
+    )
+    if not assignment_row:
+        raise HTTPException(
+            status_code=404,
+            detail="Assignment is not assigned to this staff member",
+        )
+
+    assignment, task = assignment_row
+    if assignment.submitted_at is None:
+        raise HTTPException(
+            status_code=409,
+            detail="The student has not submitted this assignment",
+        )
+    if grade_data.marks_obtained > task.max_marks:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Marks cannot exceed the total of {task.max_marks}",
+        )
+
+    assignment.marks_obtained = grade_data.marks_obtained
+    assignment.feedback = (
+        grade_data.feedback.strip() if grade_data.feedback else None
+    )
+    assignment.marked_at = datetime.now(timezone.utc)
+    db.commit()
+    db.refresh(assignment)
+
+    return {
+        "message": "Assignment marks saved successfully",
+        "assignment_id": assignment.id,
+        "task_id": task.id,
+        "student_id": assignment.student_id,
+        "status": "verified",
+        "marks_obtained": assignment.marks_obtained,
+        "max_marks": task.max_marks,
+        "feedback": assignment.feedback,
+        "marked_at": assignment.marked_at,
     }
 
 
