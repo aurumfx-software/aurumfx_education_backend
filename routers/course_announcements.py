@@ -14,6 +14,7 @@ from routers.staff_portal import get_current_staff_record, get_staff_courses
 from schemas.course_announcement import (
     CourseAnnouncementCreate,
     CourseAnnouncementResponse,
+    CourseAnnouncementUpdate,
 )
 
 
@@ -81,6 +82,39 @@ def get_student_course(
     return course
 
 
+def get_staff_announcement(
+    db: Session,
+    staff: Staff,
+    announcement_id: int,
+) -> tuple[CourseAnnouncement, Course]:
+    row = (
+        db.query(CourseAnnouncement, Course)
+        .join(Course, Course.id == CourseAnnouncement.course_id)
+        .filter(
+            CourseAnnouncement.id == announcement_id,
+            CourseAnnouncement.staff_id == staff.id,
+        )
+        .first()
+    )
+    if not row:
+        raise HTTPException(status_code=404, detail="Announcement not found")
+    return row
+
+
+def validate_announcement_content(
+    title: str,
+    message: str,
+) -> tuple[str, str]:
+    title = title.strip()
+    message = message.strip()
+    if not title or not message:
+        raise HTTPException(
+            status_code=400,
+            detail="Announcement title and message cannot be blank",
+        )
+    return title, message
+
+
 @router.post(
     "/staff/courses/{course_id}/announcements",
     response_model=CourseAnnouncementResponse,
@@ -102,13 +136,10 @@ def create_course_announcement(
             detail="Course is not assigned to this staff member",
         )
 
-    title = announcement_data.title.strip()
-    message = announcement_data.message.strip()
-    if not title or not message:
-        raise HTTPException(
-            status_code=400,
-            detail="Announcement title and message cannot be blank",
-        )
+    title, message = validate_announcement_content(
+        announcement_data.title,
+        announcement_data.message,
+    )
 
     announcement = CourseAnnouncement(
         course_id=course.id,
@@ -121,6 +152,107 @@ def create_course_announcement(
     db.commit()
     db.refresh(announcement)
     return build_announcement_response(announcement, course, staff)
+
+
+@router.get(
+    "/staff/announcements",
+    response_model=list[CourseAnnouncementResponse],
+)
+def get_my_staff_announcements(
+    db: Session = Depends(get_db),
+    staff: Staff = Depends(get_current_staff_record),
+):
+    rows = (
+        db.query(CourseAnnouncement, Course)
+        .join(Course, Course.id == CourseAnnouncement.course_id)
+        .filter(CourseAnnouncement.staff_id == staff.id)
+        .order_by(
+            CourseAnnouncement.event_at.asc().nullslast(),
+            CourseAnnouncement.created_at.desc(),
+            CourseAnnouncement.id.desc(),
+        )
+        .all()
+    )
+    return [
+        build_announcement_response(announcement, course, staff)
+        for announcement, course in rows
+    ]
+
+
+@router.get(
+    "/staff/courses/{course_id}/announcements",
+    response_model=list[CourseAnnouncementResponse],
+)
+def get_my_staff_course_announcements(
+    course_id: int,
+    db: Session = Depends(get_db),
+    staff: Staff = Depends(get_current_staff_record),
+):
+    course = next(
+        (course for course in get_staff_courses(db, staff) if course.id == course_id),
+        None,
+    )
+    if not course:
+        raise HTTPException(
+            status_code=404,
+            detail="Course is not assigned to this staff member",
+        )
+
+    announcements = (
+        db.query(CourseAnnouncement)
+        .filter(
+            CourseAnnouncement.staff_id == staff.id,
+            CourseAnnouncement.course_id == course.id,
+        )
+        .order_by(
+            CourseAnnouncement.event_at.asc().nullslast(),
+            CourseAnnouncement.created_at.desc(),
+            CourseAnnouncement.id.desc(),
+        )
+        .all()
+    )
+    return [
+        build_announcement_response(announcement, course, staff)
+        for announcement in announcements
+    ]
+
+
+@router.put(
+    "/staff/announcements/{announcement_id}",
+    response_model=CourseAnnouncementResponse,
+)
+def update_staff_announcement(
+    announcement_id: int,
+    announcement_data: CourseAnnouncementUpdate,
+    db: Session = Depends(get_db),
+    staff: Staff = Depends(get_current_staff_record),
+):
+    announcement, course = get_staff_announcement(db, staff, announcement_id)
+    title, message = validate_announcement_content(
+        announcement_data.title,
+        announcement_data.message,
+    )
+    announcement.title = title
+    announcement.message = message
+    announcement.event_at = announcement_data.event_at
+    db.commit()
+    db.refresh(announcement)
+    return build_announcement_response(announcement, course, staff)
+
+
+@router.delete("/staff/announcements/{announcement_id}")
+def delete_staff_announcement(
+    announcement_id: int,
+    db: Session = Depends(get_db),
+    staff: Staff = Depends(get_current_staff_record),
+):
+    announcement, _ = get_staff_announcement(db, staff, announcement_id)
+    db.delete(announcement)
+    db.commit()
+    return {
+        "message": "Announcement deleted successfully",
+        "announcement_id": announcement_id,
+    }
 
 
 @router.get(

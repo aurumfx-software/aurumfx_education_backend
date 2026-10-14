@@ -9,6 +9,10 @@ class CourseAnnouncementCreate(BaseModel):
     event_at: datetime | None = None
 
 
+class CourseAnnouncementUpdate(CourseAnnouncementCreate):
+    pass
+
+
 class CourseAnnouncementResponse(BaseModel):
     id: int
     course_id: int
