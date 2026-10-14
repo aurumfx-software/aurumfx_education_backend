@@ -1272,6 +1272,29 @@ class SystemSettings(Base):
 
 
 # ============================================================
+# BRANCH ADMIN SIDEBAR NAVIGATION
+# ============================================================
+
+class BranchSidebarNavigation(Base):
+    __tablename__ = "branch_sidebar_navigation"
+
+    id = Column(Integer, primary_key=True, index=True)
+    branch_id = Column(
+        Integer,
+        ForeignKey("branches.id", ondelete="CASCADE"),
+        nullable=False,
+        unique=True,
+        index=True,
+    )
+    nav_links = Column(JSONB, nullable=False)
+    updated_at = Column(
+        DateTime(timezone=True),
+        server_default=func.now(),
+        onupdate=func.now(),
+    )
+
+
+# ============================================================
 # ANNOUNCEMENT
 # ============================================================
 
@@ -2005,6 +2028,32 @@ class StaffCourse(Base):
         nullable=False,
         index=True
     )
+
+
+# ============================================================
+# COURSE ANNOUNCEMENTS
+# ============================================================
+
+class CourseAnnouncement(Base):
+    __tablename__ = "course_announcements"
+
+    id = Column(Integer, primary_key=True, index=True)
+    course_id = Column(
+        Integer,
+        ForeignKey("courses.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    staff_id = Column(
+        Integer,
+        ForeignKey("staff.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    title = Column(String, nullable=False)
+    message = Column(Text, nullable=False)
+    event_at = Column(DateTime(timezone=True), nullable=True)
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
 
 
 # ============================================================
