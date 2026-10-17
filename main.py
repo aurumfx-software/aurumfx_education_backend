@@ -27,6 +27,7 @@ from routers import (
     staff_portal,
     branch_admin_staff_verification,
     super_admin_staff,
+    super_admin_staff_verification,
     super_admin_courses,
     branch_dashboard,
     super_admin_dashboard,
@@ -408,6 +409,7 @@ app.include_router(branch_admin_staff_verification.router)
 
 # Super admin staff routes
 app.include_router(super_admin_staff.router)
+app.include_router(super_admin_staff_verification.router)
 
 # Branch admin dashboard routes
 app.include_router(branch_dashboard.router)

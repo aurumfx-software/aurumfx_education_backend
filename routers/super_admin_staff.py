@@ -313,19 +313,16 @@ def create_branch_staff(
     return build_staff_response(db, new_staff)
 
 
-@router.get(
-    "/branches/{branch_id}/staff/{staff_id}",
-    response_model=StaffResponse,
-)
+@router.get("/branches/{branch_id}/staff/{staff_id}")
 def get_branch_staff_member(
     branch_id: int,
     staff_id: int,
     db: Session = Depends(get_db),
     current_admin: User = Depends(get_current_super_admin),
 ):
-    get_branch(db, branch_id)
+    branch = get_branch(db, branch_id)
     staff = get_active_staff(db, branch_id, staff_id)
-    return build_staff_response(db, staff)
+    return build_super_admin_staff_response(db, staff, branch)
 
 
 @router.put(
