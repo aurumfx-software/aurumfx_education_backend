@@ -58,7 +58,9 @@ def get_course_staff(db: Session, course: Course):
                 and_(
                     StaffCourse.id.is_(None),
                     Staff.course_id == course.id,
-                    ~exists().where(StaffCourse.staff_id == Staff.id),
+                    ~exists()
+                    .where(StaffCourse.staff_id == Staff.id)
+                    .correlate(Staff),
                 ),
             ),
         )
