@@ -1973,6 +1973,12 @@ class Staff(Base):
         nullable=True
     )
 
+    verification_approved_by_user_id = Column(
+        Integer,
+        ForeignKey("users.id"),
+        nullable=True
+    )
+
     verification_rejection_reason = Column(
         String,
         nullable=True
@@ -1980,6 +1986,12 @@ class Staff(Base):
 
     verification_rejected_at = Column(
         DateTime(timezone=True),
+        nullable=True
+    )
+
+    verification_rejected_by_user_id = Column(
+        Integer,
+        ForeignKey("users.id"),
         nullable=True
     )
 

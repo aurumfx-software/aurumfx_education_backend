@@ -159,6 +159,44 @@ def build_staff_profile(db: Session, staff: Staff):
     }
 
 
+def build_staff_verification_reviewers(db: Session, staff: Staff):
+    reviewer_ids = {
+        reviewer_id
+        for reviewer_id in (
+            staff.verification_approved_by_user_id,
+            staff.verification_rejected_by_user_id,
+        )
+        if reviewer_id is not None
+    }
+    reviewers = (
+        {
+            user.id: user
+            for user in db.query(User).filter(User.id.in_(reviewer_ids)).all()
+        }
+        if reviewer_ids
+        else {}
+    )
+
+    def reviewer_details(reviewer_id: int | None):
+        reviewer = reviewers.get(reviewer_id)
+        if not reviewer:
+            return None
+        return {
+            "id": reviewer.id,
+            "name": reviewer.name,
+            "role": reviewer.role,
+        }
+
+    return {
+        "verification_approved_by": reviewer_details(
+            staff.verification_approved_by_user_id
+        ),
+        "verification_rejected_by": reviewer_details(
+            staff.verification_rejected_by_user_id
+        ),
+    }
+
+
 def validate_document_numbers(
     aadhaar_number: str | None,
     pan_number: str | None,
@@ -744,8 +782,10 @@ async def update_my_staff_documents(
         staff.verification_status = "pending"
         staff.verification_submitted_at = datetime.now(timezone.utc)
         staff.verification_approved_at = None
+        staff.verification_approved_by_user_id = None
         staff.verification_rejection_reason = None
         staff.verification_rejected_at = None
+        staff.verification_rejected_by_user_id = None
         db.commit()
         db.refresh(staff)
     except Exception:

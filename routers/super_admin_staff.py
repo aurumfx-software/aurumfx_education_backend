@@ -5,7 +5,10 @@ from sqlalchemy.orm import Session
 from database import SessionLocal
 from database_models import Branch, Course, Staff, StaffCourse, User
 from routers.auth import get_current_super_admin
-from routers.staff_portal import private_document_url
+from routers.staff_portal import (
+    build_staff_verification_reviewers,
+    private_document_url,
+)
 from schemas.staff import StaffCreate, StaffResponse, StaffUpdate
 from utils.password import hash_password
 from utils.staff_code import generate_staff_code
@@ -108,6 +111,7 @@ def build_staff_response(db: Session, staff: Staff):
 def build_super_admin_staff_response(db: Session, staff: Staff, branch: Branch):
     return {
         **build_staff_response(db, staff),
+        **build_staff_verification_reviewers(db, staff),
         "branch_name": branch.name,
         "branch_location": branch.location,
         "branch_status": branch.status,

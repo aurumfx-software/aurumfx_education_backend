@@ -6,7 +6,11 @@ from sqlalchemy.orm import Session
 from database import SessionLocal
 from database_models import Staff, User
 from routers.auth import get_current_user
-from routers.staff_portal import build_staff_profile, require_documents_complete
+from routers.staff_portal import (
+    build_staff_profile,
+    build_staff_verification_reviewers,
+    require_documents_complete,
+)
 from schemas.staff import StaffVerificationReject
 
 
@@ -49,13 +53,20 @@ def get_branch_staff_by_verification_status(
     )
 
     staff_members = query.order_by(Staff.created_at.desc(), Staff.id.desc()).all()
+    staff_profiles = []
+    for staff in staff_members:
+        profile = build_staff_profile(db, staff)
+        if verification_status in {"approved", "rejected"}:
+            profile.update(build_staff_verification_reviewers(db, staff))
+        staff_profiles.append(profile)
+
     return {
         "branch_id": current_user.branch_id,
         "verification_status": verification_status,
         "document_status": verification_status,
         "total_staff": len(staff_members),
         "pending_staff": len(staff_members) if verification_status == "pending" else 0,
-        "staff": [build_staff_profile(db, staff) for staff in staff_members],
+        "staff": staff_profiles,
     }
 
 
@@ -131,8 +142,10 @@ def approve_staff_documents(
     require_documents_complete(staff)
     staff.verification_status = "approved"
     staff.verification_approved_at = datetime.now(timezone.utc)
+    staff.verification_approved_by_user_id = current_user.id
     staff.verification_rejection_reason = None
     staff.verification_rejected_at = None
+    staff.verification_rejected_by_user_id = None
     db.commit()
     db.refresh(staff)
     return {
@@ -178,7 +191,9 @@ def reject_staff_documents(
     staff.verification_status = "rejected"
     staff.verification_rejection_reason = reason
     staff.verification_rejected_at = datetime.now(timezone.utc)
+    staff.verification_rejected_by_user_id = current_user.id
     staff.verification_approved_at = None
+    staff.verification_approved_by_user_id = None
     db.commit()
     db.refresh(staff)
     return {

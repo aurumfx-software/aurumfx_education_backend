@@ -273,8 +273,10 @@ try:
             "other_document_name VARCHAR",
             "verification_submitted_at TIMESTAMP WITH TIME ZONE",
             "verification_approved_at TIMESTAMP WITH TIME ZONE",
+            "verification_approved_by_user_id INTEGER REFERENCES users(id) ON DELETE SET NULL",
             "verification_rejection_reason TEXT",
             "verification_rejected_at TIMESTAMP WITH TIME ZONE",
+            "verification_rejected_by_user_id INTEGER REFERENCES users(id) ON DELETE SET NULL",
         ):
             conn.execute(
                 text(

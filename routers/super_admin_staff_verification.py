@@ -6,7 +6,11 @@ from sqlalchemy.orm import Session
 from database import SessionLocal
 from database_models import Branch, Staff, User
 from routers.auth import get_current_super_admin
-from routers.staff_portal import build_staff_profile, require_documents_complete
+from routers.staff_portal import (
+    build_staff_profile,
+    build_staff_verification_reviewers,
+    require_documents_complete,
+)
 from schemas.staff import StaffVerificationReject
 
 
@@ -40,7 +44,13 @@ def get_staff_by_verification_status(verification_status: str, db: Session):
         "document_status": verification_status,
         "total_staff": len(staff_members),
         "pending_staff": len(staff_members) if verification_status == "pending" else 0,
-        "staff": [build_staff_profile(db, staff) for staff in staff_members],
+        "staff": [
+            {
+                **build_staff_profile(db, staff),
+                **build_staff_verification_reviewers(db, staff),
+            }
+            for staff in staff_members
+        ],
     }
 
 
@@ -105,13 +115,18 @@ def approve_staff_documents(
     require_documents_complete(staff)
     staff.verification_status = "approved"
     staff.verification_approved_at = datetime.now(timezone.utc)
+    staff.verification_approved_by_user_id = current_admin.id
     staff.verification_rejection_reason = None
     staff.verification_rejected_at = None
+    staff.verification_rejected_by_user_id = None
     db.commit()
     db.refresh(staff)
     return {
         "message": "Staff documents approved",
-        "staff": build_staff_profile(db, staff),
+        "staff": {
+            **build_staff_profile(db, staff),
+            **build_staff_verification_reviewers(db, staff),
+        },
     }
 
 
@@ -141,10 +156,15 @@ def reject_staff_documents(
     staff.verification_status = "rejected"
     staff.verification_rejection_reason = reason
     staff.verification_rejected_at = datetime.now(timezone.utc)
+    staff.verification_rejected_by_user_id = current_admin.id
     staff.verification_approved_at = None
+    staff.verification_approved_by_user_id = None
     db.commit()
     db.refresh(staff)
     return {
         "message": "Staff documents rejected",
-        "staff": build_staff_profile(db, staff),
+        "staff": {
+            **build_staff_profile(db, staff),
+            **build_staff_verification_reviewers(db, staff),
+        },
     }
