@@ -41,6 +41,7 @@ from routers import (
     student_assignments,
     course_announcements,
     sidebar_navigation,
+    student_staff_messages,
 )
 
 
@@ -437,6 +438,7 @@ app.include_router(branch_admin_attendance.router)
 # MESSAGES ROUTES
 # ==========================================
 app.include_router(messages.router)
+app.include_router(student_staff_messages.router)
 
 
 # ==========================================
