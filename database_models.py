@@ -1323,6 +1323,13 @@ class Announcement(Base):
         nullable=False
     )
 
+    audience = Column(
+        String,
+        nullable=False,
+        default="both",
+        server_default="both",
+    )
+
     image = Column(
         String,
         nullable=True
@@ -2322,6 +2329,51 @@ class Message(Base):
         DateTime(timezone=True),
         server_default=func.now()
     )
+
+
+class StaffSuperAdminConversation(Base):
+    __tablename__ = "staff_super_admin_conversations"
+
+    id = Column(Integer, primary_key=True, index=True)
+    staff_id = Column(
+        Integer,
+        ForeignKey("staff.id", ondelete="CASCADE"),
+        nullable=False,
+        unique=True,
+        index=True,
+    )
+    branch_id = Column(
+        Integer,
+        ForeignKey("branches.id"),
+        nullable=False,
+    )
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+    updated_at = Column(
+        DateTime(timezone=True),
+        server_default=func.now(),
+        onupdate=func.now(),
+    )
+
+
+class StaffSuperAdminMessage(Base):
+    __tablename__ = "staff_super_admin_messages"
+
+    id = Column(Integer, primary_key=True, index=True)
+    conversation_id = Column(
+        Integer,
+        ForeignKey("staff_super_admin_conversations.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    sender_id = Column(
+        Integer,
+        ForeignKey("users.id", ondelete="CASCADE"),
+        nullable=False,
+    )
+    sender_role = Column(String, nullable=False)
+    message = Column(Text, nullable=False)
+    is_read = Column(Boolean, default=False, nullable=False)
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
 
 
 class StudentStaffConversation(Base):

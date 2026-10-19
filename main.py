@@ -42,6 +42,8 @@ from routers import (
     course_announcements,
     sidebar_navigation,
     student_staff_messages,
+    staff_super_admin_messages,
+    staff_monitoring,
 )
 
 
@@ -227,6 +229,14 @@ try:
             text(
                 "ALTER TABLE courses "
                 "ADD COLUMN IF NOT EXISTS installment_terms JSONB;"
+            )
+        )
+
+        conn.execute(
+            text(
+                "ALTER TABLE announcements "
+                "ADD COLUMN IF NOT EXISTS audience VARCHAR "
+                "NOT NULL DEFAULT 'both';"
             )
         )
 
@@ -439,6 +449,8 @@ app.include_router(branch_admin_attendance.router)
 # ==========================================
 app.include_router(messages.router)
 app.include_router(student_staff_messages.router)
+app.include_router(staff_super_admin_messages.router)
+app.include_router(staff_monitoring.router)
 
 
 # ==========================================

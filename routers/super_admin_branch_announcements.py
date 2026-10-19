@@ -1,12 +1,12 @@
 import uuid
 
-from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile
+from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, UploadFile
 from sqlalchemy.orm import Session
 
 from database import SessionLocal
 from database_models import Announcement, Branch, User
 from routers.auth import get_current_super_admin
-from schemas.announcement import AnnouncementResponse
+from schemas.announcement import AnnouncementAudience, AnnouncementResponse
 from utils.spaces import SPACES_BUCKET, SPACES_PUBLIC_URL, spaces_client
 
 
@@ -132,6 +132,53 @@ def list_branch_announcements(
     )
 
 
+@router.get("/all")
+def list_all_branch_announcements(
+    branch_id: int | None = Query(default=None, gt=0),
+    offset: int = Query(default=0, ge=0),
+    limit: int = Query(default=100, ge=1, le=500),
+    db: Session = Depends(get_db),
+    current_admin: User = Depends(get_current_super_admin),
+):
+    query = (
+        db.query(Announcement, Branch)
+        .join(Branch, Branch.id == Announcement.branch_id)
+    )
+    if branch_id is not None:
+        get_active_branch(db, branch_id)
+        query = query.filter(Announcement.branch_id == branch_id)
+
+    total = query.count()
+    rows = (
+        query.order_by(
+            Announcement.created_at.desc(),
+            Announcement.id.desc(),
+        )
+        .offset(offset)
+        .limit(limit)
+        .all()
+    )
+    return {
+        "total": total,
+        "offset": offset,
+        "limit": limit,
+        "announcements": [
+            {
+                "id": announcement.id,
+                "branch_id": branch.id,
+                "branch_name": branch.name,
+                "branch_location": branch.location,
+                "title": announcement.title,
+                "message": announcement.message,
+                "audience": announcement.audience,
+                "image": announcement.image,
+                "created_at": announcement.created_at,
+            }
+            for announcement, branch in rows
+        ],
+    }
+
+
 @router.post(
     "/branches/{branch_id}",
     response_model=AnnouncementResponse,
@@ -140,6 +187,7 @@ async def create_branch_announcement(
     branch_id: int,
     title: str = Form(...),
     message: str = Form(...),
+    audience: AnnouncementAudience = Form("all"),
     image: UploadFile | None = File(None),
     db: Session = Depends(get_db),
     current_admin: User = Depends(get_current_super_admin),
@@ -150,6 +198,7 @@ async def create_branch_announcement(
         branch_id=branch_id,
         title=title,
         message=message,
+        audience=audience,
         image=image_url,
     )
     db.add(announcement)
@@ -181,6 +230,7 @@ async def update_branch_announcement(
     announcement_id: int,
     title: str = Form(...),
     message: str = Form(...),
+    audience: AnnouncementAudience | None = Form(None),
     image: UploadFile | None = File(None),
     db: Session = Depends(get_db),
     current_admin: User = Depends(get_current_super_admin),
@@ -194,6 +244,8 @@ async def update_branch_announcement(
 
     announcement.title = title
     announcement.message = message
+    if audience is not None:
+        announcement.audience = audience
     if new_image_url:
         announcement.image = new_image_url
 

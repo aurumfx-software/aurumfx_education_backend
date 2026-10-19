@@ -14,7 +14,10 @@ from sqlalchemy.orm import Session
 from database import SessionLocal
 from database_models import Announcement, Branch
 
-from schemas.announcement import AnnouncementResponse
+from schemas.announcement import (
+    AnnouncementResponse,
+    BranchAdminAnnouncementAudience,
+)
 
 from routers.auth import get_current_user
 
@@ -124,6 +127,8 @@ async def create_branch_announcement(
 
     message: str = Form(...),
 
+    audience: BranchAdminAnnouncementAudience = Form("both"),
+
     image: UploadFile | None = File(None),
 
     db: Session = Depends(get_db),
@@ -167,6 +172,7 @@ async def create_branch_announcement(
         branch_id=branch_admin.branch_id,
         title=title,
         message=message,
+        audience=audience,
         image=image_url
     )
 
@@ -266,6 +272,8 @@ async def update_branch_announcement(
 
     message: str = Form(...),
 
+    audience: BranchAdminAnnouncementAudience | None = Form(None),
+
     image: UploadFile | None = File(None),
 
     db: Session = Depends(get_db),
@@ -301,6 +309,8 @@ async def update_branch_announcement(
     announcement.title = title
 
     announcement.message = message
+    if audience is not None:
+        announcement.audience = audience
 
     # ==========================================
     # UPDATE IMAGE IF PROVIDED
