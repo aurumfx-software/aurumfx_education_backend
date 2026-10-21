@@ -6,6 +6,7 @@ from database_models import Staff, StaffCourse, User, Course
 
 from schemas.staff import (
     StaffCreate,
+    StaffStatusUpdate,
     StaffUpdate,
     StaffResponse
 )
@@ -610,4 +611,54 @@ def delete_staff(
     return {
         "success": True,
         "message": "Staff deleted successfully"
+    }
+
+
+@router.patch("/{staff_id}/status")
+def update_staff_status(
+    staff_id: int,
+    status_update: StaffStatusUpdate,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    if current_user.role != "branch_admin":
+        raise HTTPException(status_code=403, detail="Branch admin access required")
+    if current_user.branch_id is None:
+        raise HTTPException(
+            status_code=400,
+            detail="Branch admin is not assigned to a branch",
+        )
+
+    staff = (
+        db.query(Staff)
+        .filter(
+            Staff.id == staff_id,
+            Staff.branch_id == current_user.branch_id,
+            Staff.status.in_(["Active", "Inactive"]),
+        )
+        .first()
+    )
+    if not staff:
+        raise HTTPException(status_code=404, detail="Staff not found")
+
+    staff_user = (
+        db.query(User)
+        .filter(
+            User.id == staff.user_id,
+            User.branch_id == current_user.branch_id,
+            User.role == "staff",
+        )
+        .first()
+    )
+    if not staff_user:
+        raise HTTPException(status_code=404, detail="Staff user account not found")
+
+    staff.status = status_update.status
+    staff_user.status = status_update.status
+    db.commit()
+
+    return {
+        "message": "Staff status updated successfully",
+        "staff_id": staff.id,
+        "status": staff.status,
     }

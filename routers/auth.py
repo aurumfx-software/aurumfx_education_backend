@@ -190,6 +190,18 @@ def login(
             detail="User account is inactive"
         )
 
+    if db_user.role == "staff":
+        staff_status = (
+            db.query(Staff.status)
+            .filter(Staff.user_id == db_user.id)
+            .scalar()
+        )
+        if staff_status != "Active":
+            raise HTTPException(
+                status_code=403,
+                detail="Staff account is inactive"
+            )
+
     # ==========================================
     # RESTRICT SUPER ADMIN
     # ==========================================

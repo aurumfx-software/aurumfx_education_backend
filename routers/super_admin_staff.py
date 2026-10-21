@@ -9,7 +9,7 @@ from routers.staff_portal import (
     build_staff_verification_reviewers,
     private_document_url,
 )
-from schemas.staff import StaffCreate, StaffResponse, StaffUpdate
+from schemas.staff import StaffCreate, StaffResponse, StaffStatusUpdate, StaffUpdate
 from utils.password import hash_password
 from utils.staff_code import generate_staff_code
 
@@ -417,3 +417,44 @@ def delete_branch_staff(
 
     db.commit()
     return {"success": True, "message": "Staff deleted successfully"}
+
+
+@router.patch("/{staff_id}/status")
+def update_super_admin_staff_status(
+    staff_id: int,
+    status_update: StaffStatusUpdate,
+    db: Session = Depends(get_db),
+    current_admin: User = Depends(get_current_super_admin),
+):
+    staff = (
+        db.query(Staff)
+        .filter(
+            Staff.id == staff_id,
+            Staff.status.in_(["Active", "Inactive"]),
+        )
+        .first()
+    )
+    if not staff:
+        raise HTTPException(status_code=404, detail="Staff not found")
+
+    staff_user = (
+        db.query(User)
+        .filter(
+            User.id == staff.user_id,
+            User.branch_id == staff.branch_id,
+            User.role == "staff",
+        )
+        .first()
+    )
+    if not staff_user:
+        raise HTTPException(status_code=404, detail="Staff user account not found")
+
+    staff.status = status_update.status
+    staff_user.status = status_update.status
+    db.commit()
+
+    return {
+        "message": "Staff status updated successfully",
+        "staff_id": staff.id,
+        "status": staff.status,
+    }

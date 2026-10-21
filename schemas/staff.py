@@ -1,4 +1,6 @@
 from datetime import datetime
+from typing import Literal
+
 from pydantic import BaseModel, Field
 
 
@@ -24,6 +26,10 @@ class StaffLogin(BaseModel):
 
 class StaffVerificationReject(BaseModel):
     reason: str = Field(min_length=1, max_length=1000)
+
+
+class StaffStatusUpdate(BaseModel):
+    status: Literal["Active", "Inactive"]
 
 
 # ==========================================
