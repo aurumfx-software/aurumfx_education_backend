@@ -14,6 +14,10 @@ from database_models import (
     User,
 )
 from routers.auth import get_current_super_admin, get_current_user
+from routers.staff_portal import (
+    build_staff_profile,
+    build_staff_verification_reviewers,
+)
 
 
 router = APIRouter(
@@ -149,21 +153,14 @@ def get_staff_monitoring_data(
                 }
             )
 
-    return {
-        "total_staff": total_staff,
-        "offset": offset,
-        "limit": limit,
-        "staff": [
+    monitored_staff = []
+    for staff in staff_members:
+        profile = build_staff_profile(db, staff)
+        profile.update(build_staff_verification_reviewers(db, staff))
+        profile.update(
             {
                 "id": staff.id,
-                "user_id": staff.user_id,
-                "name": staff.name,
-                "staff_code": staff.staff_code,
-                "email": staff.email,
-                "phone": staff.phone,
                 "status": staff.status,
-                "verification_status": staff.verification_status,
-                "created_at": staff.created_at,
                 "courses": [
                     {"id": course.id, "title": course.title}
                     for course in courses_by_staff[staff.id]
@@ -173,8 +170,14 @@ def get_staff_monitoring_data(
                 "announcements": announcements_by_staff[staff.id],
                 "announcement_count": len(announcements_by_staff[staff.id]),
             }
-            for staff in staff_members
-        ],
+        )
+        monitored_staff.append(profile)
+
+    return {
+        "total_staff": total_staff,
+        "offset": offset,
+        "limit": limit,
+        "staff": monitored_staff,
     }
 
 

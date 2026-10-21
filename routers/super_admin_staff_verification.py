@@ -33,7 +33,6 @@ def get_staff_by_verification_status(verification_status: str, db: Session):
         db.query(Staff)
         .filter(
             Staff.status == "Active",
-            Staff.verification_submitted_at.isnot(None),
             Staff.verification_status == verification_status,
         )
         .order_by(Staff.created_at.desc(), Staff.id.desc())
