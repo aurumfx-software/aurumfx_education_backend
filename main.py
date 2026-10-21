@@ -45,6 +45,7 @@ from routers import (
     staff_super_admin_messages,
     staff_monitoring,
     student_study_materials,
+    student_management,
 )
 
 
@@ -379,6 +380,8 @@ app.mount(
 # ==========================================
 
 app.include_router(auth.router)
+
+app.include_router(student_management.router)
 
 app.include_router(courses.router)
 
