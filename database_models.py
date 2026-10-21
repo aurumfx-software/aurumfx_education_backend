@@ -2075,6 +2075,29 @@ class CourseAnnouncement(Base):
     created_at = Column(DateTime(timezone=True), server_default=func.now())
 
 
+class CourseStudyMaterial(Base):
+    __tablename__ = "course_study_materials"
+
+    id = Column(Integer, primary_key=True, index=True)
+    course_id = Column(
+        Integer,
+        ForeignKey("courses.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    staff_id = Column(
+        Integer,
+        ForeignKey("staff.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    title = Column(String, nullable=False)
+    description = Column(Text, nullable=True)
+    file_key = Column(String, nullable=False, unique=True)
+    filename = Column(String, nullable=False)
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+
+
 # ============================================================
 # COURSE TASKS AND STUDENT ASSIGNMENTS
 # ============================================================

@@ -48,9 +48,10 @@ def get_branch_staff_by_verification_status(
     query = db.query(Staff).filter(
         Staff.branch_id == current_user.branch_id,
         Staff.status == "Active",
-        Staff.verification_submitted_at.isnot(None),
         Staff.verification_status == verification_status,
     )
+    if verification_status == "pending":
+        query = query.filter(Staff.verification_submitted_at.isnot(None))
 
     staff_members = query.order_by(Staff.created_at.desc(), Staff.id.desc()).all()
     staff_profiles = []

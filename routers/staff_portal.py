@@ -12,6 +12,7 @@ from database_models import (
     Branch,
     Course,
     CourseTask,
+    CourseStudyMaterial,
     Enrollment,
     Staff,
     StaffCourse,
@@ -23,6 +24,11 @@ from schemas.assignment import AssignmentGradeUpdate
 from schemas.staff_task import StaffTaskCreate
 from utils.assignment_files import assignment_pdf_url
 from utils.spaces import SPACES_BUCKET, spaces_client
+from utils.study_material_files import (
+    delete_study_material_pdf,
+    study_material_download_url,
+    upload_study_material_pdf,
+)
 
 
 router = APIRouter(
@@ -436,6 +442,123 @@ def get_my_course_students(
         },
         "total_students": len(students),
         "students": students,
+    }
+
+
+@router.post(
+    "/courses/{course_id}/study-materials",
+    status_code=201,
+)
+async def upload_course_study_material(
+    course_id: int,
+    title: str = Form(..., min_length=1, max_length=255),
+    file: UploadFile = File(...),
+    description: str | None = Form(default=None, max_length=5000),
+    db: Session = Depends(get_db),
+    staff: Staff = Depends(get_current_staff_record),
+):
+    course = next(
+        (course for course in get_staff_courses(db, staff) if course.id == course_id),
+        None,
+    )
+    if not course:
+        raise HTTPException(
+            status_code=404,
+            detail="Course is not assigned to this staff member",
+        )
+
+    title = title.strip()
+    if not title:
+        raise HTTPException(status_code=400, detail="Title cannot be empty")
+    description = description.strip() if description else None
+    if description == "":
+        description = None
+
+    file_key, filename = await upload_study_material_pdf(
+        course.id,
+        staff.id,
+        file,
+    )
+    material = CourseStudyMaterial(
+        course_id=course.id,
+        staff_id=staff.id,
+        title=title,
+        description=description,
+        file_key=file_key,
+        filename=filename,
+    )
+    db.add(material)
+    try:
+        db.commit()
+        db.refresh(material)
+    except Exception:
+        db.rollback()
+        delete_study_material_pdf(file_key)
+        raise
+
+    return {
+        "id": material.id,
+        "course_id": course.id,
+        "course_title": course.title,
+        "title": material.title,
+        "description": material.description,
+        "filename": material.filename,
+        "created_at": material.created_at,
+        "download_url": study_material_download_url(
+            material.file_key,
+            material.filename,
+        ),
+    }
+
+
+@router.get("/courses/{course_id}/study-materials")
+def get_course_study_materials_for_staff(
+    course_id: int,
+    db: Session = Depends(get_db),
+    staff: Staff = Depends(get_current_staff_record),
+):
+    course = next(
+        (course for course in get_staff_courses(db, staff) if course.id == course_id),
+        None,
+    )
+    if not course:
+        raise HTTPException(
+            status_code=404,
+            detail="Course is not assigned to this staff member",
+        )
+
+    materials = (
+        db.query(CourseStudyMaterial, Staff)
+        .join(Staff, Staff.id == CourseStudyMaterial.staff_id)
+        .filter(CourseStudyMaterial.course_id == course.id)
+        .order_by(
+            CourseStudyMaterial.created_at.desc(),
+            CourseStudyMaterial.id.desc(),
+        )
+        .all()
+    )
+    return {
+        "course_id": course.id,
+        "course_title": course.title,
+        "total": len(materials),
+        "materials": [
+            {
+                "id": material.id,
+                "title": material.title,
+                "description": material.description,
+                "filename": material.filename,
+                "uploaded_by": {
+                    "staff_id": uploader.id,
+                    "staff_name": uploader.name,
+                },
+                "created_at": material.created_at,
+                "download_url": study_material_download_url(
+                    material.file_key,
+                    material.filename,
+                ),
+            }
+            for material, uploader in materials
+        ],
     }
 
 

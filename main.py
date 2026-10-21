@@ -44,6 +44,7 @@ from routers import (
     student_staff_messages,
     staff_super_admin_messages,
     staff_monitoring,
+    student_study_materials,
 )
 
 
@@ -415,6 +416,7 @@ app.include_router(payments.router)
 app.include_router(staff.router)
 
 app.include_router(staff_portal.router)
+app.include_router(student_study_materials.router)
 app.include_router(student_assignments.router)
 app.include_router(course_announcements.router)
 app.include_router(sidebar_navigation.router)
