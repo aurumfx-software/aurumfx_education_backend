@@ -325,6 +325,7 @@ def update_enrollment_for_branch_admin(
         "user_id": enrollment.user_id,
         "course_id": enrollment.course_id,
         "branch_id": enrollment.branch_id,
+        "account_status": student.status,
         "name": enrollment.name,
         "email": enrollment.email,
         "phone": enrollment.phone,
@@ -594,6 +595,7 @@ def get_branch_admin_enrollments(
             "user_id": enrollment.user_id,
             "course_id": enrollment.course_id,
             "branch_id": enrollment.branch_id,
+            "account_status": student.status,
 
             "name": enrollment.name,
             "email": enrollment.email,
@@ -702,6 +704,7 @@ def get_branch_admin_course_enrollments(
             "user_id": enrollment.user_id,
             "course_id": enrollment.course_id,
             "branch_id": enrollment.branch_id,
+            "account_status": student.status,
 
             "name": enrollment.name,
             "email": enrollment.email,

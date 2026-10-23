@@ -158,6 +158,7 @@ class AdminEnrollmentResponse(BaseModel):
     course_id: int
     branch_id: int
 
+    account_status: str
     name: str
     email: str
     phone: str

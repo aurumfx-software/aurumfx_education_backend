@@ -281,7 +281,7 @@ def get_staff_courses(
 
 
 # ==========================================
-# GET ALL ACTIVE STAFF
+# GET ACTIVE AND INACTIVE STAFF
 # Deleted staff are NOT shown
 # ==========================================
 
@@ -311,14 +311,14 @@ def get_all_staff(
         )
 
     # --------------------------------------
-    # GET ACTIVE STAFF ONLY
+    # Keep inactive staff visible; deleted staff remain hidden.
     # --------------------------------------
 
     results = (
         db.query(Staff)
         .filter(
             Staff.branch_id == current_user.branch_id,
-            Staff.status == "Active"
+            Staff.status.in_(["Active", "Inactive"])
         )
         .order_by(
             Staff.created_at.desc()
@@ -333,7 +333,7 @@ def get_all_staff(
 
 
 # ==========================================
-# GET SINGLE ACTIVE STAFF
+# GET SINGLE ACTIVE OR INACTIVE STAFF
 # Deleted staff are NOT shown
 # ==========================================
 
@@ -364,7 +364,7 @@ def get_staff(
         )
 
     # --------------------------------------
-    # GET ACTIVE STAFF ONLY
+    # Keep inactive staff accessible; deleted staff remain hidden.
     # --------------------------------------
 
     staff = (
@@ -372,7 +372,7 @@ def get_staff(
         .filter(
             Staff.id == staff_id,
             Staff.branch_id == current_user.branch_id,
-            Staff.status == "Active"
+            Staff.status.in_(["Active", "Inactive"])
         )
         .first()
     )
