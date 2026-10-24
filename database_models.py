@@ -917,6 +917,12 @@ class AdmissionPayment(Base):
         nullable=False
     )
 
+    credited_to_balance = Column(
+        Boolean,
+        default=False,
+        nullable=False,
+    )
+
     reviewed_by_user_id = Column(
         Integer,
         ForeignKey("users.id", ondelete="SET NULL"),

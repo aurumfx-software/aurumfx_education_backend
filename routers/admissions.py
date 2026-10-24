@@ -486,7 +486,8 @@ def create_payment(
 
             payment_date=payment_date,
 
-            status="received"
+            status="received",
+            credited_to_balance=True,
         )
 
         db.add(payment)

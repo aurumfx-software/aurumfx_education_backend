@@ -225,6 +225,7 @@ def build_installment_student_record(
                 "payment_date": payment.payment_date,
                 "status": payment.status,
                 **installment_payment_status_fields(payment),
+                "credited_to_balance": payment.credited_to_balance,
                 "reviewed_at": payment.reviewed_at,
                 "rejection_reason": payment.rejection_reason,
             }
@@ -284,6 +285,7 @@ def build_installment_payment_record(
         "payment_date": payment.payment_date,
         "status": payment.status,
         **installment_payment_status_fields(payment),
+        "credited_to_balance": payment.credited_to_balance,
         "reviewed_by_user_id": payment.reviewed_by_user_id,
         "reviewed_at": payment.reviewed_at,
         "rejection_reason": payment.rejection_reason,
@@ -606,10 +608,8 @@ def get_student_installment_details(
         ),
         None,
     )
-    next_payment_pending = (
-        pending_amount_by_installment.get(next_installment.id, 0) > 0
-        if next_installment
-        else False
+    has_pending_review = any(
+        payment.status == "pending_review" for payment in payment_rows
     )
 
     return {
@@ -621,6 +621,7 @@ def get_student_installment_details(
         "branch_approval_status": enrollment.branch_approval_status,
         "super_admin_approval_status": enrollment.super_admin_approval_status,
         "payment_status": enrollment.status,
+        "has_pending_payment_review": has_pending_review,
         "total_fee": enrollment.total_fee,
         "total_paid": enrollment.total_paid,
         "balance_amount": enrollment.balance_amount,
@@ -652,9 +653,11 @@ def get_student_installment_details(
                 "due_date": next_installment.due_date,
                 "status": next_installment.status,
                 "payment_review_status": (
-                    "pending_review" if next_payment_pending else None
+                    "pending_review"
+                    if pending_amount_by_installment.get(next_installment.id, 0) > 0
+                    else None
                 ),
-                "can_create_payment_order": not next_payment_pending,
+                "can_create_payment_order": not has_pending_review,
             }
             if next_installment
             else None
@@ -672,6 +675,7 @@ def get_student_installment_details(
                 "payment_date": payment.payment_date,
                 "status": payment.status,
                 **installment_payment_status_fields(payment),
+                "credited_to_balance": payment.credited_to_balance,
                 "payment_reference": payment.payment_reference,
                 "reviewed_at": payment.reviewed_at,
                 "rejection_reason": payment.rejection_reason,
@@ -794,6 +798,7 @@ def get_my_enrollments(
                     "payment_date": payment.payment_date,
                     "status": payment.status,
                     **installment_payment_status_fields(payment),
+                    "credited_to_balance": payment.credited_to_balance,
                     "reviewed_by_user_id": payment.reviewed_by_user_id,
                     "reviewed_at": payment.reviewed_at,
                     "rejection_reason": payment.rejection_reason,
@@ -1741,6 +1746,7 @@ def record_branch_admin_installment_payment(
         ),
         payment_date=payment_date,
         status="received",
+        credited_to_balance=True,
         reviewed_by_user_id=current_user.id,
         reviewed_at=datetime.now(timezone.utc),
     )
@@ -1842,34 +1848,34 @@ def approve_installment_payment_request(
     if not enrollment or not installment:
         raise HTTPException(status_code=409, detail="Payment installment was not found")
 
-    amount = round(payment.amount, 2)
-    installment_remaining = round(installment.amount - installment.paid_amount, 2)
-    enrollment_balance = round(enrollment.balance_amount or 0, 2)
-    if amount > installment_remaining or amount > enrollment_balance:
-        raise HTTPException(
-            status_code=409,
-            detail="Payment amount exceeds the current installment or enrollment balance",
+    if not payment.credited_to_balance:
+        amount = round(payment.amount, 2)
+        installment_remaining = round(
+            installment.amount - installment.paid_amount, 2
         )
+        enrollment_balance = round(enrollment.balance_amount or 0, 2)
+        if amount > installment_remaining or amount > enrollment_balance:
+            raise HTTPException(
+                status_code=409,
+                detail=(
+                    "Payment amount exceeds the current installment or "
+                    "enrollment balance"
+                ),
+            )
 
-    installment.paid_amount = round(installment.paid_amount + amount, 2)
-    installment.status = (
-        "paid" if installment.paid_amount >= installment.amount else "partial"
-    )
-    if installment.status == "paid":
-        installment.paid_amount = installment.amount
-        installment.paid_date = payment.payment_date
-    installment.cash_amount = round(
-        (installment.cash_amount or 0) + payment.cash_amount, 2
-    )
-    installment.upi_amount = round(
-        (installment.upi_amount or 0) + payment.upi_amount, 2
-    )
-
-    enrollment.total_paid = round((enrollment.total_paid or 0) + amount, 2)
-    enrollment.balance_amount = max(
-        round(enrollment.total_fee - enrollment.total_paid, 2), 0
-    )
-    enrollment.status = "paid" if enrollment.balance_amount == 0 else "pending"
+        installment.paid_amount = round(installment.paid_amount + amount, 2)
+        installment.status = (
+            "paid" if installment.paid_amount >= installment.amount else "partial"
+        )
+        if installment.status == "paid":
+            installment.paid_amount = installment.amount
+            installment.paid_date = payment.payment_date
+        enrollment.total_paid = round((enrollment.total_paid or 0) + amount, 2)
+        enrollment.balance_amount = max(
+            round(enrollment.total_fee - enrollment.total_paid, 2), 0
+        )
+        enrollment.status = "paid" if enrollment.balance_amount == 0 else "pending"
+        payment.credited_to_balance = True
 
     payment.status = "received"
     payment.reviewed_by_user_id = current_user.id
@@ -1883,7 +1889,7 @@ def approve_installment_payment_request(
     branch = db.query(Branch).filter(Branch.id == branch_id).first()
     return {
         "success": True,
-        "message": "Installment payment approved and applied to the student balance",
+        "message": "Razorpay payment verified by BranchAdmin",
         **build_installment_payment_record(
             payment,
             enrollment,
@@ -1927,23 +1933,64 @@ def reject_installment_payment_request(
     if not reason:
         raise HTTPException(status_code=400, detail="Rejection reason is required")
 
+    enrollment = (
+        db.query(Enrollment)
+        .filter(Enrollment.id == payment.enrollment_id)
+        .with_for_update()
+        .first()
+    )
+    installment = (
+        db.query(EnrollmentInstallment)
+        .filter(EnrollmentInstallment.id == payment.installment_id)
+        .with_for_update()
+        .first()
+    )
+    if not enrollment or not installment:
+        raise HTTPException(status_code=409, detail="Payment installment was not found")
+
+    if payment.credited_to_balance:
+        amount = round(payment.amount, 2)
+        if (
+            amount > round(installment.paid_amount, 2)
+            or amount > round(enrollment.total_paid or 0, 2)
+        ):
+            raise HTTPException(
+                status_code=409,
+                detail="Cannot reverse this payment because credited totals changed",
+            )
+
+        installment.paid_amount = round(installment.paid_amount - amount, 2)
+        installment.status = (
+            "paid"
+            if installment.paid_amount >= installment.amount
+            else "partial"
+            if installment.paid_amount > 0
+            else "pending"
+        )
+        if installment.status != "paid":
+            installment.paid_date = None
+
+        enrollment.total_paid = round(enrollment.total_paid - amount, 2)
+        enrollment.balance_amount = max(
+            round(enrollment.total_fee - enrollment.total_paid, 2), 0
+        )
+        enrollment.status = "paid" if enrollment.balance_amount == 0 else "pending"
+        payment.credited_to_balance = False
+
     payment.status = "rejected"
     payment.reviewed_by_user_id = current_user.id
     payment.reviewed_at = datetime.now(timezone.utc)
     payment.rejection_reason = reason
     db.commit()
     db.refresh(payment)
-    enrollment = db.query(Enrollment).filter(
-        Enrollment.id == payment.enrollment_id
-    ).first()
     student = db.query(User).filter(User.id == payment.user_id).first()
     course = db.query(Course).filter(Course.id == enrollment.course_id).first()
     branch = db.query(Branch).filter(Branch.id == branch_id).first()
     return {
         "success": True,
         "message": (
-            "Installment payment rejected in the enrollment records. "
-            "This does not refund the Razorpay charge."
+            "Payment rejected and removed from the credited enrollment balance. "
+            "This does not refund the Razorpay charge; process a refund separately."
         ),
         **build_installment_payment_record(
             payment,

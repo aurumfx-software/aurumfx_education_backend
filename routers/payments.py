@@ -9,7 +9,6 @@ from dateutil.relativedelta import relativedelta
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field
 from typing import Literal
-from sqlalchemy import func
 from sqlalchemy.orm import Session
 
 from database import SessionLocal
@@ -244,7 +243,8 @@ def apply_student_payment(
                 upi_amount=0,
                 payment_method="razorpay",
                 payment_date=payment_date,
-                status="received",
+                status="pending_review",
+                credited_to_balance=True,
                 payment_reference=payment_id,
             )
         )
@@ -261,94 +261,6 @@ def apply_student_payment(
         round(enrollment.total_fee - enrollment.total_paid, 2), 0
     )
     enrollment.status = "paid" if enrollment.balance_amount == 0 else "pending"
-    enrollment.razorpay_payment_id = payment_id
-    enrollment.paid_at = datetime.now(timezone.utc)
-    payment_order.status = "paid"
-    payment_order.razorpay_payment_id = payment_id
-
-
-def record_pending_installment_payment(
-    db: Session,
-    enrollment: Enrollment,
-    payment_order: RazorpayPaymentOrder,
-    payment_id: str,
-):
-    payment_amount = round(payment_order.amount, 2)
-    if payment_amount > round(enrollment.balance_amount or 0, 2):
-        raise HTTPException(
-            status_code=409,
-            detail="Enrollment balance changed; payment needs review",
-        )
-
-    if payment_order.installment_id:
-        installments = (
-            db.query(EnrollmentInstallment)
-            .filter(
-                EnrollmentInstallment.id == payment_order.installment_id,
-                EnrollmentInstallment.enrollment_id == enrollment.id,
-            )
-            .with_for_update()
-            .all()
-        )
-    else:
-        installments = (
-            db.query(EnrollmentInstallment)
-            .filter(EnrollmentInstallment.enrollment_id == enrollment.id)
-            .order_by(EnrollmentInstallment.installment_number.asc())
-            .with_for_update()
-            .all()
-        )
-
-    remaining = payment_amount
-    pending_payments = []
-    for installment in installments:
-        if remaining <= 0:
-            break
-        pending_for_installment = (
-            db.query(func.coalesce(func.sum(AdmissionPayment.amount), 0))
-            .filter(
-                AdmissionPayment.installment_id == installment.id,
-                AdmissionPayment.status == "pending_review",
-            )
-            .scalar()
-        ) or 0
-        available_amount = round(
-            installment.amount - installment.paid_amount - pending_for_installment,
-            2,
-        )
-        if available_amount <= 0:
-            continue
-        amount_for_installment = round(min(remaining, available_amount), 2)
-        pending_payments.append(
-            AdmissionPayment(
-                enrollment_id=enrollment.id,
-                installment_id=installment.id,
-                installment_number=installment.installment_number,
-                user_id=enrollment.user_id,
-                branch_id=enrollment.branch_id,
-                amount=amount_for_installment,
-                cash_amount=0,
-                upi_amount=0,
-                payment_method="razorpay",
-                payment_date=date.today(),
-                status="pending_review",
-                payment_reference=payment_id,
-            )
-        )
-        remaining = round(remaining - amount_for_installment, 2)
-
-    if remaining > 0:
-        raise HTTPException(
-            status_code=409,
-            detail="Installment balance changed; payment needs review",
-        )
-    if not pending_payments:
-        raise HTTPException(
-            status_code=409,
-            detail="No installment balance is available for this payment",
-        )
-
-    db.add_all(pending_payments)
     enrollment.razorpay_payment_id = payment_id
     enrollment.paid_at = datetime.now(timezone.utc)
     payment_order.status = "paid"
@@ -935,6 +847,9 @@ def verify_payment(
             "installment_payment_status": (
                 payment_record.status if payment_record else "received"
             ),
+            "credited_to_balance": (
+                payment_record.credited_to_balance if payment_record else False
+            ),
             "enrollment_id": enrollment.id,
             "status": enrollment.status,
             "total_paid": enrollment.total_paid,
@@ -1012,46 +927,24 @@ def verify_payment(
             enrollment.total_fee - enrollment.total_paid, 2
         )
     ensure_installment_plan(db, enrollment, course)
-    has_received_payment = (
-        db.query(AdmissionPayment.id)
-        .filter(
-            AdmissionPayment.enrollment_id == enrollment.id,
-            AdmissionPayment.status == "received",
-        )
-        .first()
-        is not None
+    apply_student_payment(
+        db=db,
+        enrollment=enrollment,
+        payment_order=payment_order,
+        payment_id=payment_data.razorpay_payment_id,
     )
-    if has_received_payment:
-        record_pending_installment_payment(
-            db=db,
-            enrollment=enrollment,
-            payment_order=payment_order,
-            payment_id=payment_data.razorpay_payment_id,
-        )
-        payment_message = (
-            "Payment verified successfully and is awaiting BranchAdmin approval"
-        )
-    else:
-        apply_student_payment(
-            db=db,
-            enrollment=enrollment,
-            payment_order=payment_order,
-            payment_id=payment_data.razorpay_payment_id,
-        )
-        payment_message = "First payment verified and applied successfully"
 
     db.commit()
     db.refresh(enrollment)
     return {
         "success": True,
-        "message": payment_message,
+        "message": (
+            "Payment verified and credited successfully; BranchAdmin review is pending"
+        ),
         "payment_status": "paid",
-        "approval_status": (
-            "pending" if has_received_payment else "not_required"
-        ),
-        "installment_payment_status": (
-            "pending_review" if has_received_payment else "received"
-        ),
+        "approval_status": "pending",
+        "installment_payment_status": "pending_review",
+        "credited_to_balance": True,
         "enrollment_id": enrollment.id,
         "status": enrollment.status,
         "course_status": enrollment.course_status,

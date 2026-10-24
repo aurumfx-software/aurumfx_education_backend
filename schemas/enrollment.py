@@ -75,6 +75,7 @@ class EnrollmentPaymentDetail(BaseModel):
     status: str
     payment_status: str | None = None
     approval_status: str | None = None
+    credited_to_balance: bool = False
     reviewed_by_user_id: int | None = None
     reviewed_at: datetime | None = None
     rejection_reason: str | None = None

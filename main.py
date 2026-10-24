@@ -123,6 +123,20 @@ try:
                 "ADD COLUMN IF NOT EXISTS payment_reference VARCHAR;"
             )
         )
+        conn.execute(
+            text(
+                "ALTER TABLE admission_payments "
+                "ADD COLUMN IF NOT EXISTS credited_to_balance BOOLEAN "
+                "NOT NULL DEFAULT FALSE;"
+            )
+        )
+        conn.execute(
+            text(
+                "UPDATE admission_payments "
+                "SET credited_to_balance = TRUE "
+                "WHERE status = 'received';"
+            )
+        )
 
         conn.execute(
             text(
