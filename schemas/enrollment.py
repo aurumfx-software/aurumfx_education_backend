@@ -71,6 +71,10 @@ class EnrollmentPaymentDetail(BaseModel):
     payment_method: str
     payment_date: date
     status: str
+    reviewed_by_user_id: int | None = None
+    reviewed_at: datetime | None = None
+    rejection_reason: str | None = None
+    payment_reference: str | None = None
 
     class Config:
         from_attributes = True
@@ -88,6 +92,17 @@ class BranchAdminEnrollmentUpdate(BaseModel):
 
 
 class SuperAdminPurchaseReject(BaseModel):
+    reason: str = Field(min_length=1, max_length=1000)
+
+
+class BranchAdminInstallmentPaymentCreate(BaseModel):
+    installment_number: int = Field(ge=1)
+    cash_amount: float = Field(default=0, ge=0)
+    upi_amount: float = Field(default=0, ge=0)
+    payment_date: date | None = None
+
+
+class InstallmentPaymentReject(BaseModel):
     reason: str = Field(min_length=1, max_length=1000)
 
 

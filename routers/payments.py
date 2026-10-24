@@ -9,6 +9,7 @@ from dateutil.relativedelta import relativedelta
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field
 from typing import Literal
+from sqlalchemy import func
 from sqlalchemy.orm import Session
 
 from database import SessionLocal
@@ -62,7 +63,8 @@ def get_db():
 # ============================================================
 
 class CreateOrderRequest(BaseModel):
-    course_id: int
+    course_id: int | None = None
+    enrollment_id: int | None = None
     payment_type: Literal["full", "installment"] = "full"
     installment_number: int | None = Field(default=None, ge=1)
 
@@ -243,6 +245,7 @@ def apply_student_payment(
                 payment_method="razorpay",
                 payment_date=payment_date,
                 status="received",
+                payment_reference=payment_id,
             )
         )
         remaining = round(remaining - amount_for_term, 2)
@@ -258,6 +261,94 @@ def apply_student_payment(
         round(enrollment.total_fee - enrollment.total_paid, 2), 0
     )
     enrollment.status = "paid" if enrollment.balance_amount == 0 else "pending"
+    enrollment.razorpay_payment_id = payment_id
+    enrollment.paid_at = datetime.now(timezone.utc)
+    payment_order.status = "paid"
+    payment_order.razorpay_payment_id = payment_id
+
+
+def record_pending_installment_payment(
+    db: Session,
+    enrollment: Enrollment,
+    payment_order: RazorpayPaymentOrder,
+    payment_id: str,
+):
+    payment_amount = round(payment_order.amount, 2)
+    if payment_amount > round(enrollment.balance_amount or 0, 2):
+        raise HTTPException(
+            status_code=409,
+            detail="Enrollment balance changed; payment needs review",
+        )
+
+    if payment_order.installment_id:
+        installments = (
+            db.query(EnrollmentInstallment)
+            .filter(
+                EnrollmentInstallment.id == payment_order.installment_id,
+                EnrollmentInstallment.enrollment_id == enrollment.id,
+            )
+            .with_for_update()
+            .all()
+        )
+    else:
+        installments = (
+            db.query(EnrollmentInstallment)
+            .filter(EnrollmentInstallment.enrollment_id == enrollment.id)
+            .order_by(EnrollmentInstallment.installment_number.asc())
+            .with_for_update()
+            .all()
+        )
+
+    remaining = payment_amount
+    pending_payments = []
+    for installment in installments:
+        if remaining <= 0:
+            break
+        pending_for_installment = (
+            db.query(func.coalesce(func.sum(AdmissionPayment.amount), 0))
+            .filter(
+                AdmissionPayment.installment_id == installment.id,
+                AdmissionPayment.status == "pending_review",
+            )
+            .scalar()
+        ) or 0
+        available_amount = round(
+            installment.amount - installment.paid_amount - pending_for_installment,
+            2,
+        )
+        if available_amount <= 0:
+            continue
+        amount_for_installment = round(min(remaining, available_amount), 2)
+        pending_payments.append(
+            AdmissionPayment(
+                enrollment_id=enrollment.id,
+                installment_id=installment.id,
+                installment_number=installment.installment_number,
+                user_id=enrollment.user_id,
+                branch_id=enrollment.branch_id,
+                amount=amount_for_installment,
+                cash_amount=0,
+                upi_amount=0,
+                payment_method="razorpay",
+                payment_date=date.today(),
+                status="pending_review",
+                payment_reference=payment_id,
+            )
+        )
+        remaining = round(remaining - amount_for_installment, 2)
+
+    if remaining > 0:
+        raise HTTPException(
+            status_code=409,
+            detail="Installment balance changed; payment needs review",
+        )
+    if not pending_payments:
+        raise HTTPException(
+            status_code=409,
+            detail="No installment balance is available for this payment",
+        )
+
+    db.add_all(pending_payments)
     enrollment.razorpay_payment_id = payment_id
     enrollment.paid_at = datetime.now(timezone.utc)
     payment_order.status = "paid"
@@ -312,43 +403,12 @@ def create_order(
 
     check_razorpay_config()
 
-    # ========================================================
-    # FIND ACTIVE COURSE
-    # ========================================================
-
-    course = (
-        db.query(Course)
-        .filter(
-            Course.id == payment_data.course_id,
-            Course.is_active == True
-        )
-        .first()
-    )
-
-    if not course:
-        raise HTTPException(
-            status_code=404,
-            detail="Course not found"
-        )
-
-    # ========================================================
-    # CHECK COURSE BRANCH
-    # ========================================================
-
-    if not course.branch_id:
+    if payment_data.course_id is None and payment_data.enrollment_id is None:
         raise HTTPException(
             status_code=400,
-            detail="Course is not assigned to a branch"
+            detail="course_id or enrollment_id is required",
         )
 
-    if (
-        payment_data.payment_type == "installment"
-        and payment_data.installment_number is None
-    ):
-        raise HTTPException(
-            status_code=400,
-            detail="installment_number is required for installment payment",
-        )
     if (
         payment_data.payment_type == "full"
         and payment_data.installment_number is not None
@@ -358,18 +418,69 @@ def create_order(
             detail="Do not provide installment_number for full payment",
         )
 
-    # ========================================================
-    # CHECK EXISTING ENROLLMENT
-    # ========================================================
-
-    existing_enrollment = (
-        db.query(Enrollment)
-        .filter(
-            Enrollment.user_id == current_user.id,
-            Enrollment.course_id == course.id
+    existing_enrollment = None
+    if payment_data.enrollment_id is not None:
+        existing_enrollment = (
+            db.query(Enrollment)
+            .filter(
+                Enrollment.id == payment_data.enrollment_id,
+                Enrollment.user_id == current_user.id,
+            )
+            .with_for_update()
+            .first()
         )
-        .first()
-    )
+        if not existing_enrollment:
+            raise HTTPException(status_code=404, detail="Enrollment not found")
+        if (
+            payment_data.course_id is not None
+            and payment_data.course_id != existing_enrollment.course_id
+        ):
+            raise HTTPException(
+                status_code=400,
+                detail="Course does not match the enrollment",
+            )
+        course = (
+            db.query(Course)
+            .filter(Course.id == existing_enrollment.course_id)
+            .first()
+        )
+    else:
+        course = (
+            db.query(Course)
+            .filter(
+                Course.id == payment_data.course_id,
+                Course.is_active == True,
+            )
+            .first()
+        )
+        if not course:
+            raise HTTPException(status_code=404, detail="Course not found")
+        existing_enrollment = (
+            db.query(Enrollment)
+            .filter(
+                Enrollment.user_id == current_user.id,
+                Enrollment.course_id == course.id,
+            )
+            .first()
+        )
+
+    if not course:
+        raise HTTPException(status_code=404, detail="Course not found")
+    if not course.branch_id:
+        raise HTTPException(
+            status_code=400,
+            detail="Course is not assigned to a branch",
+        )
+
+    if (
+        payment_data.payment_type == "installment"
+        and payment_data.installment_number is None
+        and existing_enrollment is None
+    ):
+        raise HTTPException(
+            status_code=400,
+            detail="installment_number is required for a new enrollment",
+        )
 
     # ========================================================
     # ALREADY PAID
@@ -464,14 +575,20 @@ def create_order(
     installments = ensure_installment_plan(db, enrollment, course)
     selected_installment = None
     if payment_data.payment_type == "installment":
-        selected_installment = next(
-            (
-                term
-                for term in installments
-                if term.installment_number == payment_data.installment_number
-            ),
-            None,
-        )
+        if payment_data.installment_number is None:
+            selected_installment = next(
+                (term for term in installments if term.status != "paid"),
+                None,
+            )
+        else:
+            selected_installment = next(
+                (
+                    term
+                    for term in installments
+                    if term.installment_number == payment_data.installment_number
+                ),
+                None,
+            )
         if not selected_installment:
             db.rollback()
             raise HTTPException(
@@ -511,6 +628,21 @@ def create_order(
         raise HTTPException(
             status_code=409,
             detail="A payment order is already in progress for this enrollment",
+        )
+
+    pending_payment = (
+        db.query(AdmissionPayment.id)
+        .filter(
+            AdmissionPayment.enrollment_id == enrollment.id,
+            AdmissionPayment.status == "pending_review",
+        )
+        .first()
+    )
+    if pending_payment:
+        db.rollback()
+        raise HTTPException(
+            status_code=409,
+            detail="A Razorpay installment payment is awaiting BranchAdmin review",
         )
 
     if payment_amount <= 0 or payment_amount > enrollment.balance_amount:
@@ -777,9 +909,21 @@ def verify_payment(
     )
 
     if payment_order and payment_order.status == "paid":
+        payment_record = (
+            db.query(AdmissionPayment)
+            .filter(
+                AdmissionPayment.enrollment_id == enrollment.id,
+                AdmissionPayment.payment_reference
+                == payment_order.razorpay_payment_id,
+            )
+            .first()
+        )
         return {
             "success": True,
             "message": "Payment already verified",
+            "installment_payment_status": (
+                payment_record.status if payment_record else "received"
+            ),
             "enrollment_id": enrollment.id,
             "status": enrollment.status,
             "total_paid": enrollment.total_paid,
@@ -857,18 +1001,42 @@ def verify_payment(
             enrollment.total_fee - enrollment.total_paid, 2
         )
     ensure_installment_plan(db, enrollment, course)
-    apply_student_payment(
-        db=db,
-        enrollment=enrollment,
-        payment_order=payment_order,
-        payment_id=payment_data.razorpay_payment_id,
+    has_received_payment = (
+        db.query(AdmissionPayment.id)
+        .filter(
+            AdmissionPayment.enrollment_id == enrollment.id,
+            AdmissionPayment.status == "received",
+        )
+        .first()
+        is not None
     )
+    if has_received_payment:
+        record_pending_installment_payment(
+            db=db,
+            enrollment=enrollment,
+            payment_order=payment_order,
+            payment_id=payment_data.razorpay_payment_id,
+        )
+        payment_message = (
+            "Payment verified successfully and is awaiting BranchAdmin approval"
+        )
+    else:
+        apply_student_payment(
+            db=db,
+            enrollment=enrollment,
+            payment_order=payment_order,
+            payment_id=payment_data.razorpay_payment_id,
+        )
+        payment_message = "First payment verified and applied successfully"
 
     db.commit()
     db.refresh(enrollment)
     return {
         "success": True,
-        "message": "Payment verified successfully",
+        "message": payment_message,
+        "installment_payment_status": (
+            "pending_review" if has_received_payment else "received"
+        ),
         "enrollment_id": enrollment.id,
         "status": enrollment.status,
         "course_status": enrollment.course_status,

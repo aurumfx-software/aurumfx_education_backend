@@ -99,6 +99,33 @@ try:
 
         conn.execute(
             text(
+                "ALTER TABLE admission_payments "
+                "ADD COLUMN IF NOT EXISTS reviewed_by_user_id INTEGER "
+                "REFERENCES users(id) ON DELETE SET NULL;"
+            )
+        )
+        conn.execute(
+            text(
+                "ALTER TABLE admission_payments "
+                "ADD COLUMN IF NOT EXISTS reviewed_at "
+                "TIMESTAMP WITH TIME ZONE;"
+            )
+        )
+        conn.execute(
+            text(
+                "ALTER TABLE admission_payments "
+                "ADD COLUMN IF NOT EXISTS rejection_reason TEXT;"
+            )
+        )
+        conn.execute(
+            text(
+                "ALTER TABLE admission_payments "
+                "ADD COLUMN IF NOT EXISTS payment_reference VARCHAR;"
+            )
+        )
+
+        conn.execute(
+            text(
                 "UPDATE admission_payments "
                 "SET payment_method = CASE "
                 "WHEN cash_amount > 0 AND upi_amount > 0 THEN 'cash_upi' "
