@@ -8,6 +8,8 @@ class EnrollmentInstallmentDetail(BaseModel):
     amount: float
     paid_amount: float
     remaining_amount: float
+    pending_review_amount: float = 0
+    payment_review_status: str | None = None
     is_due: bool
     due_date: date
     status: str
@@ -71,6 +73,8 @@ class EnrollmentPaymentDetail(BaseModel):
     payment_method: str
     payment_date: date
     status: str
+    payment_status: str | None = None
+    approval_status: str | None = None
     reviewed_by_user_id: int | None = None
     reviewed_at: datetime | None = None
     rejection_reason: str | None = None
@@ -143,6 +147,7 @@ class EnrollmentResponse(BaseModel):
     payment_plan: str = "full_payment"
     due_installment_count: int = 0
     installments: list[EnrollmentInstallmentDetail] = Field(default_factory=list)
+    payments: list[EnrollmentPaymentDetail] = Field(default_factory=list)
 
     # Payment status
     status: str

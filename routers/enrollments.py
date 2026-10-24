@@ -62,6 +62,19 @@ def enrollment_payment_summary(db: Session, enrollment: Enrollment):
         if installment.due_date <= date.today()
         and installment.amount - installment.paid_amount > 0
     ]
+    pending_payment_amounts = dict(
+        db.query(
+            AdmissionPayment.installment_id,
+            func.sum(AdmissionPayment.amount),
+        )
+        .filter(
+            AdmissionPayment.enrollment_id == enrollment.id,
+            AdmissionPayment.status == "pending_review",
+            AdmissionPayment.installment_id.isnot(None),
+        )
+        .group_by(AdmissionPayment.installment_id)
+        .all()
+    )
     next_installment = next(
         (
             installment
@@ -114,6 +127,14 @@ def enrollment_payment_summary(db: Session, enrollment: Enrollment):
                 "remaining_amount": round(
                     installment.amount - installment.paid_amount, 2
                 ),
+                "pending_review_amount": round(
+                    pending_payment_amounts.get(installment.id, 0) or 0, 2
+                ),
+                "payment_review_status": (
+                    "pending"
+                    if pending_payment_amounts.get(installment.id, 0) > 0
+                    else None
+                ),
                 "is_due": (
                     installment.due_date <= date.today()
                     and installment.amount - installment.paid_amount > 0
@@ -137,6 +158,29 @@ def enrollment_payment_history(db: Session, enrollment: Enrollment):
         )
         .all()
     )
+
+
+def installment_payment_status_fields(payment: AdmissionPayment):
+    if payment.payment_method == "razorpay":
+        payment_status = (
+            "paid"
+            if payment.status in {"pending_review", "received", "rejected"}
+            else payment.status
+        )
+        approval_status = {
+            "pending_review": "pending",
+            "received": (
+                "approved" if payment.reviewed_by_user_id else "not_required"
+            ),
+            "rejected": "rejected",
+        }.get(payment.status, "not_required")
+    else:
+        payment_status = "paid" if payment.status == "received" else payment.status
+        approval_status = "not_required"
+    return {
+        "payment_status": payment_status,
+        "approval_status": approval_status,
+    }
 
 
 def build_installment_student_record(
@@ -180,6 +224,7 @@ def build_installment_student_record(
                 "payment_method": payment.payment_method,
                 "payment_date": payment.payment_date,
                 "status": payment.status,
+                **installment_payment_status_fields(payment),
                 "reviewed_at": payment.reviewed_at,
                 "rejection_reason": payment.rejection_reason,
             }
@@ -238,6 +283,7 @@ def build_installment_payment_record(
         "payment_reference": payment.payment_reference,
         "payment_date": payment.payment_date,
         "status": payment.status,
+        **installment_payment_status_fields(payment),
         "reviewed_by_user_id": payment.reviewed_by_user_id,
         "reviewed_at": payment.reviewed_at,
         "rejection_reason": payment.rejection_reason,
@@ -515,6 +561,11 @@ def get_student_installment_details(
             "pending_review_amount": pending_amount_by_installment.get(
                 installment.id, 0
             ),
+            "payment_review_status": (
+                "pending"
+                if pending_amount_by_installment.get(installment.id, 0) > 0
+                else None
+            ),
             "due_date": installment.due_date,
             "paid_date": installment.paid_date,
             "status": installment.status,
@@ -620,6 +671,7 @@ def get_student_installment_details(
                 "payment_method": payment.payment_method,
                 "payment_date": payment.payment_date,
                 "status": payment.status,
+                **installment_payment_status_fields(payment),
                 "payment_reference": payment.payment_reference,
                 "reviewed_at": payment.reviewed_at,
                 "rejection_reason": payment.rejection_reason,
@@ -729,7 +781,26 @@ def get_my_enrollments(
 
             "total_fee": enrollment.total_fee,
             **enrollment_payment_summary(db, enrollment),
-            "payments": enrollment_payment_history(db, enrollment),
+            "payments": [
+                {
+                    "id": payment.id,
+                    "enrollment_id": payment.enrollment_id,
+                    "installment_id": payment.installment_id,
+                    "installment_number": payment.installment_number,
+                    "amount": payment.amount,
+                    "cash_amount": payment.cash_amount,
+                    "upi_amount": payment.upi_amount,
+                    "payment_method": payment.payment_method,
+                    "payment_date": payment.payment_date,
+                    "status": payment.status,
+                    **installment_payment_status_fields(payment),
+                    "reviewed_by_user_id": payment.reviewed_by_user_id,
+                    "reviewed_at": payment.reviewed_at,
+                    "rejection_reason": payment.rejection_reason,
+                    "payment_reference": payment.payment_reference,
+                }
+                for payment in enrollment_payment_history(db, enrollment)
+            ],
 
             # Payment status
             "status": enrollment.status,

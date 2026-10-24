@@ -918,9 +918,20 @@ def verify_payment(
             )
             .first()
         )
+        review_status = (
+            "pending"
+            if payment_record and payment_record.status == "pending_review"
+            else "rejected"
+            if payment_record and payment_record.status == "rejected"
+            else "approved"
+            if payment_record and payment_record.reviewed_by_user_id
+            else "not_required"
+        )
         return {
             "success": True,
             "message": "Payment already verified",
+            "payment_status": "paid",
+            "approval_status": review_status,
             "installment_payment_status": (
                 payment_record.status if payment_record else "received"
             ),
@@ -1034,11 +1045,18 @@ def verify_payment(
     return {
         "success": True,
         "message": payment_message,
+        "payment_status": "paid",
+        "approval_status": (
+            "pending" if has_received_payment else "not_required"
+        ),
         "installment_payment_status": (
             "pending_review" if has_received_payment else "received"
         ),
         "enrollment_id": enrollment.id,
         "status": enrollment.status,
+        "course_status": enrollment.course_status,
+        "branch_approval_status": enrollment.branch_approval_status,
+        "super_admin_approval_status": enrollment.super_admin_approval_status,
         "course_status": enrollment.course_status,
         "total_fee": enrollment.total_fee,
         "total_paid": enrollment.total_paid,
