@@ -33,6 +33,10 @@ from routers import (
     super_admin_dashboard,
     branch_profit,
     super_admin_branch_profit,
+    branch_expenses,
+    super_admin_expenses,
+    branch_receipts,
+    super_admin_receipts,
     super_admin_attendance,
     staff_attendance,
     branch_admin_attendance,
@@ -479,6 +483,11 @@ app.include_router(super_admin_dashboard.router)
 app.include_router(branch_profit.router)
 
 app.include_router(super_admin_branch_profit.router)
+
+app.include_router(branch_expenses.router)
+app.include_router(super_admin_expenses.router)
+app.include_router(branch_receipts.router)
+app.include_router(super_admin_receipts.router)
 
 app.include_router(super_admin_attendance.router)
 

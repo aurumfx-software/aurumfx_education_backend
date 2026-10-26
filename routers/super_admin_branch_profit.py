@@ -6,10 +6,7 @@ from sqlalchemy.orm import Session
 from database import SessionLocal
 from database_models import Branch, User
 from routers.auth import get_current_super_admin
-from routers.branch_profit import (
-    enrollment_to_dict,
-    get_paid_enrollment_records,
-)
+from routers.branch_profit import build_profit_response
 
 
 router = APIRouter(
@@ -37,33 +34,6 @@ def get_active_branch(db: Session, branch_id: int) -> Branch:
     if branch.status != "Active":
         raise HTTPException(status_code=400, detail="Branch is inactive")
     return branch
-
-
-def build_profit_response(db: Session, branch_id: int, payment_date: date_type):
-    enrollment_records = get_paid_enrollment_records(
-        db=db,
-        branch_id=branch_id,
-        payment_date=payment_date,
-    )
-    total_profit = sum(
-        amount_paid_on_date
-        for enrollment, course, amount_paid_on_date in enrollment_records
-    )
-    return {
-        "branch_id": branch_id,
-        "date": payment_date.isoformat(),
-        "total_profit": float(total_profit),
-        "total_enrollments": len(enrollment_records),
-        "enrollments": [
-            enrollment_to_dict(
-                db,
-                enrollment,
-                course,
-                amount_paid_on_date,
-            )
-            for enrollment, course, amount_paid_on_date in enrollment_records
-        ],
-    }
 
 
 @router.get("/branches")
@@ -95,12 +65,31 @@ def get_branch_profit(
         alias="date",
         description="Date to report, in YYYY-MM-DD format. Defaults to today.",
     ),
+    from_date: date_type | None = Query(
+        default=None,
+        description="Start date for the report, in YYYY-MM-DD format.",
+    ),
+    to_date: date_type | None = Query(
+        default=None,
+        description="End date for the report, in YYYY-MM-DD format.",
+    ),
     db: Session = Depends(get_db),
     current_admin: User = Depends(get_current_super_admin),
 ):
     get_active_branch(db, branch_id)
-    selected_date = payment_date or date_type.today()
-    return build_profit_response(db, branch_id, selected_date)
+    start_date = from_date or payment_date or to_date or date_type.today()
+    end_date = to_date or (date_type.today() if from_date else start_date)
+    if start_date > end_date:
+        raise HTTPException(
+            status_code=400,
+            detail="from_date must be on or before to_date",
+        )
+    return build_profit_response(
+        db,
+        branch_id,
+        start_date,
+        end_date,
+    )
 
 
 @router.get("/branches/{branch_id}/today-profit")
@@ -111,11 +100,22 @@ def get_branch_today_profit(
 ):
     get_active_branch(db, branch_id)
     today = date_type.today()
-    result = build_profit_response(db, branch_id, today)
+    result = build_profit_response(db, branch_id, today, today)
     return {
         "branch_id": result["branch_id"],
         "date": result["date"],
         "today_profit": result["total_profit"],
         "total_enrollments": result["total_enrollments"],
         "enrollments": result["enrollments"],
+        "payments": result["payments"],
+        "total_received": result["total_received"],
+        "total_enrolled_students": result["total_enrolled_students"],
+        "cash_credited": result["cash_credited"],
+        "cash_received": result["cash_received"],
+        "upi_credited": result["upi_credited"],
+        "upi_received": result["upi_received"],
+        "razorpay_credited": result["razorpay_credited"],
+        "razorpay_received": result["razorpay_received"],
+        "due_student_count": result["due_student_count"],
+        "due_student_amount": result["due_student_amount"],
     }

@@ -173,6 +173,31 @@ class Branch(Base):
     )
 
 
+class BranchExpense(Base):
+    __tablename__ = "branch_expenses"
+
+    id = Column(Integer, primary_key=True, index=True)
+    branch_id = Column(
+        Integer,
+        ForeignKey("branches.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    item = Column(String(255), nullable=False)
+    cost = Column(Float, nullable=False)
+    expense_date = Column(Date, nullable=False, index=True)
+    created_by_user_id = Column(
+        Integer,
+        ForeignKey("users.id", ondelete="SET NULL"),
+        nullable=True,
+    )
+    created_at = Column(
+        DateTime(timezone=True),
+        server_default=func.now(),
+        nullable=False,
+    )
+
+
 # ============================================================
 # COURSE
 # ============================================================

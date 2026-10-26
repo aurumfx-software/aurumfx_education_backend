@@ -1,4 +1,5 @@
 from datetime import date, datetime, timezone
+from uuid import uuid4
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.orm import Session
@@ -25,6 +26,7 @@ from schemas.enrollment import (
 )
 
 from routers.auth import get_current_user, get_current_super_admin
+from routers.branch_receipts import build_branch_receipt
 
 
 router = APIRouter(
@@ -1749,6 +1751,7 @@ def record_branch_admin_installment_payment(
         credited_to_balance=True,
         reviewed_by_user_id=current_user.id,
         reviewed_at=datetime.now(timezone.utc),
+        payment_reference=f"BRANCH-{uuid4().hex}",
     )
     db.add(payment)
     enrollment.total_paid = round((enrollment.total_paid or 0) + amount, 2)
@@ -1761,9 +1764,29 @@ def record_branch_admin_installment_payment(
     student = db.query(User).filter(User.id == enrollment.user_id).first()
     course = db.query(Course).filter(Course.id == enrollment.course_id).first()
     branch = db.query(Branch).filter(Branch.id == branch_id).first()
+    receipt = build_branch_receipt(
+        [
+            (
+                payment,
+                enrollment,
+                course,
+                student,
+                branch.name if branch else "",
+                None,
+            )
+        ]
+    )
     return {
         "success": True,
         "message": "BranchAdmin cash/UPI installment payment recorded",
+        "receipt": receipt,
+        "receipt_url": f"/branch-admin/receipts/{receipt['receipt_id']}",
+        "receipt_print_url": (
+            f"/branch-admin/receipts/{receipt['receipt_id']}"
+        ),
+        "receipt_download_url": (
+            f"/branch-admin/receipts/{receipt['receipt_id']}/download"
+        ),
         **build_installment_payment_record(
             payment,
             enrollment,

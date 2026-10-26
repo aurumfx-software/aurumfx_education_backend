@@ -194,3 +194,7 @@ class BranchAdmissionResponse(BaseModel):
     super_admin_approval_status: str = "pending"
 
     payments: list[AdmissionPaymentResponse]
+    receipt: dict | None = None
+    receipt_url: str | None = None
+    receipt_print_url: str | None = None
+    receipt_download_url: str | None = None

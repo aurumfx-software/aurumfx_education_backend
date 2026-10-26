@@ -619,56 +619,174 @@ def enrollment_to_dict(
     }
 
 
-def get_paid_enrollment_records(
+def build_profit_response(
     db: Session,
     branch_id: int,
-    payment_date: date_type,
+    from_date: date_type,
+    to_date: date_type,
 ):
-    start_of_day = datetime.combine(payment_date, time.min)
-    end_of_day = start_of_day + timedelta(days=1)
-    daily_payments = (
-        db.query(
-            AdmissionPayment.enrollment_id.label("enrollment_id"),
-            func.sum(AdmissionPayment.amount).label("amount_paid_on_date"),
-        )
+    start_datetime = datetime.combine(from_date, time.min)
+    end_datetime = datetime.combine(to_date + timedelta(days=1), time.min)
+    payment_records = (
+        db.query(AdmissionPayment, Enrollment, Course, User)
+        .join(Enrollment, Enrollment.id == AdmissionPayment.enrollment_id)
+        .join(Course, Course.id == Enrollment.course_id)
+        .outerjoin(User, User.id == Enrollment.user_id)
         .filter(
             AdmissionPayment.branch_id == branch_id,
-            AdmissionPayment.payment_date == payment_date,
             AdmissionPayment.status == "received",
+            AdmissionPayment.payment_date >= from_date,
+            AdmissionPayment.payment_date <= to_date,
         )
-        .group_by(AdmissionPayment.enrollment_id)
-        .subquery()
+        .order_by(
+            AdmissionPayment.payment_date.desc(),
+            AdmissionPayment.id.desc(),
+        )
+        .all()
     )
 
-    return (
-        db.query(
-            Enrollment,
-            Course,
-            func.coalesce(
-                daily_payments.c.amount_paid_on_date,
-                Enrollment.total_fee,
-            ).label("amount_paid_on_date"),
+    cash_received = 0.0
+    cash_credited = 0.0
+    upi_received = 0.0
+    upi_credited = 0.0
+    razorpay_received = 0.0
+    razorpay_credited = 0.0
+    total_received = 0.0
+    payment_details = []
+    enrollment_totals = {}
+    method_labels = {
+        "cash": "Cash",
+        "upi": "UPI",
+        "cash_upi": "Cash + UPI",
+        "razorpay": "Razorpay",
+    }
+
+    for payment, enrollment, course, student in payment_records:
+        amount = float(payment.amount or 0)
+        cash_amount = float(payment.cash_amount or 0)
+        upi_amount = float(payment.upi_amount or 0)
+        if payment.payment_method == "cash" and cash_amount == 0:
+            cash_amount = amount
+        elif payment.payment_method == "upi" and upi_amount == 0:
+            upi_amount = amount
+
+        total_received += amount
+        cash_received += cash_amount
+        upi_received += upi_amount
+        if payment.credited_to_balance:
+            cash_credited += cash_amount
+            upi_credited += upi_amount
+        if payment.payment_method == "razorpay":
+            razorpay_received += amount
+            if payment.credited_to_balance:
+                razorpay_credited += amount
+
+        payment_details.append(
+            {
+                "payment_id": payment.id,
+                "enrollment_id": enrollment.id,
+                "student_id": enrollment.user_id,
+                "student_name": (
+                    enrollment.name or (student.name if student else None)
+                ),
+                "course_id": enrollment.course_id,
+                "course_name": enrollment.course_title or course.title,
+                "amount": amount,
+                "cash_amount": cash_amount,
+                "upi_amount": upi_amount,
+                "payment_method": payment.payment_method,
+                "payment_method_label": method_labels.get(
+                    payment.payment_method, payment.payment_method
+                ),
+                "payment_date": payment.payment_date.isoformat(),
+                "installment_number": payment.installment_number,
+                "credited_to_balance": bool(payment.credited_to_balance),
+                "payment_reference": payment.payment_reference,
+            }
         )
-        .join(Course, Course.id == Enrollment.course_id)
-        .outerjoin(
-            daily_payments,
-            daily_payments.c.enrollment_id == Enrollment.id,
+        if enrollment.id not in enrollment_totals:
+            enrollment_totals[enrollment.id] = [enrollment, course, 0.0]
+        enrollment_totals[enrollment.id][2] += amount
+
+    enrollment_date_filter = or_(
+        and_(
+            Enrollment.admission_date.isnot(None),
+            Enrollment.admission_date >= from_date,
+            Enrollment.admission_date <= to_date,
+        ),
+        and_(
+            Enrollment.admission_date.is_(None),
+            Enrollment.created_at >= start_datetime,
+            Enrollment.created_at < end_datetime,
+        ),
+    )
+    total_enrolled_students = (
+        db.query(func.count(func.distinct(Enrollment.user_id)))
+        .filter(
+            Enrollment.branch_id == branch_id,
+            enrollment_date_filter,
+        )
+        .scalar()
+        or 0
+    )
+    total_enrollments = (
+        db.query(func.count(Enrollment.id))
+        .filter(
+            Enrollment.branch_id == branch_id,
+            enrollment_date_filter,
+        )
+        .scalar()
+        or 0
+    )
+
+    due_totals = (
+        db.query(
+            func.count(func.distinct(Enrollment.user_id)),
+            func.coalesce(
+                func.sum(
+                    EnrollmentInstallment.amount
+                    - EnrollmentInstallment.paid_amount
+                ),
+                0,
+            ),
+        )
+        .join(
+            Enrollment,
+            Enrollment.id == EnrollmentInstallment.enrollment_id,
         )
         .filter(
             Enrollment.branch_id == branch_id,
-            Enrollment.course_status == "approved",
-            or_(
-                daily_payments.c.enrollment_id.isnot(None),
-                and_(
-                    Enrollment.status == "paid",
-                    Enrollment.paid_at >= start_of_day,
-                    Enrollment.paid_at < end_of_day,
-                ),
-            ),
+            EnrollmentInstallment.due_date >= from_date,
+            EnrollmentInstallment.due_date <= to_date,
+            EnrollmentInstallment.amount > EnrollmentInstallment.paid_amount,
         )
-        .order_by(Enrollment.paid_at.desc())
-        .all()
+        .first()
     )
+    due_student_count, due_student_amount = due_totals or (0, 0)
+
+    return {
+        "branch_id": branch_id,
+        "from_date": from_date.isoformat(),
+        "to_date": to_date.isoformat(),
+        "date": from_date.isoformat() if from_date == to_date else None,
+        "total_received": round(total_received, 2),
+        "total_profit": round(total_received, 2),
+        "total_enrolled_students": total_enrolled_students,
+        "total_enrollments": total_enrollments,
+        "cash_credited": round(cash_credited, 2),
+        "cash_received": round(cash_received, 2),
+        "upi_credited": round(upi_credited, 2),
+        "upi_received": round(upi_received, 2),
+        "razorpay_credited": round(razorpay_credited, 2),
+        "razorpay_received": round(razorpay_received, 2),
+        "due_student_count": due_student_count,
+        "due_student_amount": round(float(due_student_amount or 0), 2),
+        "payments": payment_details,
+        "enrollments": [
+            enrollment_to_dict(db, enrollment, course, amount)
+            for enrollment, course, amount in enrollment_totals.values()
+        ],
+    }
 
 
 # ============================================================
@@ -684,6 +802,14 @@ def get_branch_profit(
     date: date_type | None = Query(
         default=None,
         description="Enter date. Format: YYYY-MM-DD"
+    ),
+    from_date: date_type | None = Query(
+        default=None,
+        description="Start date for the report, in YYYY-MM-DD format.",
+    ),
+    to_date: date_type | None = Query(
+        default=None,
+        description="End date for the report, in YYYY-MM-DD format.",
     ),
 
     db: Session = Depends(get_db),
@@ -702,61 +828,20 @@ def get_branch_profit(
         db
     )
 
-    branch_id = branch.id
+    start_date = from_date or date or to_date or date_type.today()
+    end_date = to_date or (date_type.today() if from_date else start_date)
+    if start_date > end_date:
+        raise HTTPException(
+            status_code=400,
+            detail="from_date must be on or before to_date",
+        )
 
-    # ========================================================
-    # DEFAULT DATE = TODAY
-    # ========================================================
-
-    if date is None:
-        date = date_type.today()
-
-    # ========================================================
-    # GET APPROVED ENROLLMENTS WITH PAYMENTS ON SELECTED DATE
-    # ========================================================
-
-    enrollment_records = get_paid_enrollment_records(
+    return build_profit_response(
         db=db,
-        branch_id=branch_id,
-        payment_date=date,
+        branch_id=branch.id,
+        from_date=start_date,
+        to_date=end_date,
     )
-
-    # ========================================================
-    # TOTAL PROFIT
-    # ========================================================
-
-    total_profit = sum(
-        amount_paid_on_date
-        for enrollment, course, amount_paid_on_date
-        in enrollment_records
-    )
-
-    # ========================================================
-    # RESPONSE
-    # ========================================================
-
-    return {
-        "date": date.isoformat(),
-
-        "total_profit": float(
-            total_profit
-        ),
-
-        "total_enrollments": len(
-            enrollment_records
-        ),
-
-        "enrollments": [
-            enrollment_to_dict(
-                db,
-                enrollment,
-                course,
-                amount_paid_on_date,
-            )
-            for enrollment, course, amount_paid_on_date
-            in enrollment_records
-        ]
-    }
 
 
 # ============================================================
@@ -785,57 +870,14 @@ def get_today_profit(
         db
     )
 
-    branch_id = branch.id
-
-    # ========================================================
-    # TODAY'S DATE
-    # ========================================================
-
     today = date_type.today()
-
-    # ========================================================
-    # GET APPROVED ENROLLMENTS WITH PAYMENTS TODAY
-    # ========================================================
-
-    enrollment_records = get_paid_enrollment_records(
+    result = build_profit_response(
         db=db,
-        branch_id=branch_id,
-        payment_date=today,
+        branch_id=branch.id,
+        from_date=today,
+        to_date=today,
     )
-
-    # ========================================================
-    # CALCULATE TODAY'S PROFIT
-    # ========================================================
-
-    today_profit = sum(
-        amount_paid_on_date
-        for enrollment, course, amount_paid_on_date
-        in enrollment_records
-    )
-
-    # ========================================================
-    # RESPONSE
-    # ========================================================
-
     return {
-        "date": today.isoformat(),
-
-        "today_profit": float(
-            today_profit
-        ),
-
-        "total_enrollments": len(
-            enrollment_records
-        ),
-
-        "enrollments": [
-            enrollment_to_dict(
-                db,
-                enrollment,
-                course,
-                amount_paid_on_date,
-            )
-            for enrollment, course, amount_paid_on_date
-            in enrollment_records
-        ]
+        **result,
+        "today_profit": result["total_received"],
     }

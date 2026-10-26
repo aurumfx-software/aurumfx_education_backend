@@ -1,5 +1,7 @@
 from datetime import date
 
+from uuid import uuid4
+
 from dateutil.relativedelta import relativedelta
 
 from fastapi import (
@@ -14,6 +16,7 @@ from database import SessionLocal
 
 from database_models import (
     User,
+    Branch,
     Course,
     Enrollment,
     EnrollmentInstallment,
@@ -21,6 +24,7 @@ from database_models import (
 )
 
 from routers.auth import get_current_user
+from routers.branch_receipts import build_branch_receipt
 
 from schemas.admission import (
     BranchAdmissionCreate,
@@ -358,6 +362,7 @@ def create_payment(
     )
 
     payments = []
+    payment_reference = f"BRANCH-{uuid4().hex}"
 
     # ========================================================
     # DISTRIBUTE PAYMENT
@@ -488,6 +493,7 @@ def create_payment(
 
             status="received",
             credited_to_balance=True,
+            payment_reference=payment_reference,
         )
 
         db.add(payment)
@@ -893,9 +899,10 @@ def create_admission(
     # INITIAL PAYMENT
     # ========================================================
 
+    initial_payments = []
     if first_payment > 0:
 
-        create_payment(
+        initial_payments = create_payment(
             db=db,
 
             enrollment=enrollment,
@@ -917,10 +924,38 @@ def create_admission(
 
     db.refresh(enrollment)
 
-    return build_admission_response(
+    response = build_admission_response(
         db=db,
         enrollment=enrollment
     )
+    if initial_payments:
+        for payment in initial_payments:
+            db.refresh(payment)
+        student = db.query(User).filter(User.id == enrollment.user_id).first()
+        branch = db.query(Branch).filter(Branch.id == enrollment.branch_id).first()
+        course = db.query(Course).filter(Course.id == enrollment.course_id).first()
+        receipt = build_branch_receipt(
+            [
+                (
+                    payment,
+                    enrollment,
+                    course,
+                    student,
+                    branch.name if branch else "",
+                    None,
+                )
+                for payment in initial_payments
+            ]
+        )
+        response.receipt = receipt
+        response.receipt_url = (
+            f"/branch-admin/receipts/{receipt['receipt_id']}"
+        )
+        response.receipt_print_url = response.receipt_url
+        response.receipt_download_url = (
+            f"/branch-admin/receipts/{receipt['receipt_id']}/download"
+        )
+    return response
 
 
 # ============================================================
