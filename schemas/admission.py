@@ -54,6 +54,11 @@ class BranchAdmissionCreate(BaseModel):
         ge=0
     )
 
+    upi_transaction_id: str | None = Field(
+        default=None,
+        max_length=255,
+    )
+
     installment_number: int | None = Field(
         default=None,
         ge=1
@@ -76,6 +81,11 @@ class AdmissionPaymentCreate(BaseModel):
     upi_amount: float = Field(
         default=0,
         ge=0
+    )
+
+    upi_transaction_id: str | None = Field(
+        default=None,
+        max_length=255,
     )
 
     installment_number: int | None = Field(
@@ -143,6 +153,8 @@ class AdmissionPaymentResponse(BaseModel):
     payment_date: date
 
     status: str
+
+    upi_transaction_id: str | None = None
 
     class Config:
         from_attributes = True

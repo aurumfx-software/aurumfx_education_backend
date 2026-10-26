@@ -322,7 +322,7 @@ def build_student_receipt(
         )
         payment_type = f"Installment {number} of {installment_count}"
     elif (enrollment.balance_amount or 0) <= 0:
-        payment_type = "Full course payment"
+        payment_type = "Remaining course balance settlement"
     else:
         payment_type = "Course payment"
 
@@ -346,6 +346,7 @@ def build_student_receipt(
         "currency": "INR",
         "payment_method": "Razorpay",
         "transaction_reference": payment_order.razorpay_payment_id,
+        "upi_transaction_id": "",
         "cash_amount": 0.0,
         "upi_amount": 0.0,
         "razorpay_order_id": payment_order.razorpay_order_id,
@@ -366,6 +367,7 @@ def render_receipt_html(receipt: dict) -> str:
         if value is not None
     }
     safe.setdefault("branch_name", "")
+    safe.setdefault("upi_transaction_id", "")
     for key in (
         "amount_paid",
         "cash_amount",
@@ -431,6 +433,7 @@ def render_receipt_html(receipt: dict) -> str:
       <div><span class="label">Transaction reference</span><span class="value">{safe['transaction_reference']}</span></div>
       <div><span class="label">Cash portion</span><span class="value">₹{safe['cash_amount']}</span></div>
       <div><span class="label">UPI portion</span><span class="value">₹{safe['upi_amount']}</span></div>
+      <div><span class="label">UPI transaction ID</span><span class="value">{safe['upi_transaction_id']}</span></div>
       <div><span class="label">Razorpay payment ID</span><span class="value">{safe['razorpay_payment_id']}</span></div>
       <div><span class="label">Razorpay order ID</span><span class="value">{safe['razorpay_order_id']}</span></div>
       <div><span class="label">Course fee</span><span class="value">₹{safe['course_fee']}</span></div>

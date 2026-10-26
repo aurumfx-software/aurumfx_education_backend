@@ -80,6 +80,7 @@ class EnrollmentPaymentDetail(BaseModel):
     reviewed_at: datetime | None = None
     rejection_reason: str | None = None
     payment_reference: str | None = None
+    upi_transaction_id: str | None = None
 
     class Config:
         from_attributes = True
@@ -101,9 +102,11 @@ class SuperAdminPurchaseReject(BaseModel):
 
 
 class BranchAdminInstallmentPaymentCreate(BaseModel):
-    installment_number: int = Field(ge=1)
+    installment_number: int | None = Field(default=None, ge=1)
+    pay_full_balance: bool = False
     cash_amount: float = Field(default=0, ge=0)
     upi_amount: float = Field(default=0, ge=0)
+    upi_transaction_id: str | None = Field(default=None, max_length=255)
     payment_date: date | None = None
 
 
@@ -142,6 +145,12 @@ class EnrollmentResponse(BaseModel):
     total_fee: float
     total_paid: float = 0
     balance_amount: float = 0
+    full_balance_amount: float = 0
+    can_pay_full_balance: bool = False
+    has_pending_payment_review: bool = False
+    payment_review_status: str = "not_pending"
+    pending_review_amount: float = 0
+    pending_payments: list[dict] = Field(default_factory=list)
     installment_count: int = 0
     paid_installment_count: int = 0
     remaining_installment_count: int = 0
@@ -197,6 +206,8 @@ class AdminEnrollmentResponse(BaseModel):
     total_fee: float
     total_paid: float = 0
     balance_amount: float = 0
+    full_balance_amount: float = 0
+    can_pay_full_balance: bool = False
     installment_count: int = 0
     paid_installment_count: int = 0
     remaining_installment_count: int = 0

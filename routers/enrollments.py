@@ -95,6 +95,14 @@ def enrollment_payment_summary(db: Session, enrollment: Enrollment):
             round(enrollment.total_fee - (enrollment.total_paid or 0), 2),
             0,
         ),
+        "full_balance_amount": max(
+            round(enrollment.total_fee - (enrollment.total_paid or 0), 2),
+            0,
+        ),
+        "can_pay_full_balance": (
+            round(enrollment.total_fee - (enrollment.total_paid or 0), 2) > 0
+            and not any(pending_payment_amounts.values())
+        ),
         "installment_count": installment_count,
         "paid_installment_count": paid_installment_count,
         "remaining_installment_count": (
@@ -162,6 +170,69 @@ def enrollment_payment_history(db: Session, enrollment: Enrollment):
     )
 
 
+def enrollment_payment_review_summary(
+    db: Session,
+    enrollment: Enrollment,
+    payment_rows: list[AdmissionPayment] | None = None,
+):
+    payment_rows = payment_rows or enrollment_payment_history(db, enrollment)
+    pending_groups = {}
+    for payment in payment_rows:
+        if payment.status != "pending_review":
+            continue
+        group_key = payment.payment_reference or f"payment-{payment.id}"
+        pending_groups.setdefault(group_key, []).append(payment)
+
+    pending_payments = []
+    for payment_reference, payments in pending_groups.items():
+        payment_order = (
+            db.query(RazorpayPaymentOrder)
+            .filter(
+                RazorpayPaymentOrder.enrollment_id == enrollment.id,
+                RazorpayPaymentOrder.razorpay_payment_id == payment_reference,
+            )
+            .first()
+        )
+        is_full_balance = bool(
+            payment_order and payment_order.installment_id is None
+        )
+        pending_payments.append(
+            {
+                "payment_reference": payment_reference,
+                "amount": round(
+                    sum(float(payment.amount or 0) for payment in payments),
+                    2,
+                ),
+                "payment_method": payments[0].payment_method,
+                "payment_scope": (
+                    "full_balance" if is_full_balance else "installment"
+                ),
+                "payment_label": (
+                    "Full remaining course balance"
+                    if is_full_balance
+                    else "Installment payment"
+                ),
+                "installment_numbers": sorted(
+                    {payment.installment_number for payment in payments}
+                ),
+                "status": "pending_review",
+            }
+        )
+
+    pending_amount = round(
+        sum(payment["amount"] for payment in pending_payments),
+        2,
+    )
+    return {
+        "has_pending_payment_review": bool(pending_payments),
+        "payment_review_status": (
+            "pending" if pending_payments else "not_pending"
+        ),
+        "pending_review_amount": pending_amount,
+        "pending_payments": pending_payments,
+    }
+
+
 def installment_payment_status_fields(payment: AdmissionPayment):
     if payment.payment_method == "razorpay":
         payment_status = (
@@ -226,6 +297,7 @@ def build_installment_student_record(
                 "payment_method": payment.payment_method,
                 "payment_date": payment.payment_date,
                 "status": payment.status,
+                "upi_transaction_id": payment.upi_transaction_id,
                 **installment_payment_status_fields(payment),
                 "credited_to_balance": payment.credited_to_balance,
                 "reviewed_at": payment.reviewed_at,
@@ -286,6 +358,7 @@ def build_installment_payment_record(
         "payment_reference": payment.payment_reference,
         "payment_date": payment.payment_date,
         "status": payment.status,
+        "upi_transaction_id": payment.upi_transaction_id,
         **installment_payment_status_fields(payment),
         "credited_to_balance": payment.credited_to_balance,
         "reviewed_by_user_id": payment.reviewed_by_user_id,
@@ -613,6 +686,9 @@ def get_student_installment_details(
     has_pending_review = any(
         payment.status == "pending_review" for payment in payment_rows
     )
+    payment_review_summary = enrollment_payment_review_summary(
+        db, enrollment, payment_rows
+    )
 
     return {
         "enrollment_id": enrollment.id,
@@ -624,9 +700,18 @@ def get_student_installment_details(
         "super_admin_approval_status": enrollment.super_admin_approval_status,
         "payment_status": enrollment.status,
         "has_pending_payment_review": has_pending_review,
+        **payment_review_summary,
         "total_fee": enrollment.total_fee,
         "total_paid": enrollment.total_paid,
         "balance_amount": enrollment.balance_amount,
+        "full_balance_amount": max(
+            round(enrollment.total_fee - (enrollment.total_paid or 0), 2),
+            0,
+        ),
+        "can_pay_full_balance": (
+            round(enrollment.total_fee - (enrollment.total_paid or 0), 2) > 0
+            and not has_pending_review
+        ),
         "installment_count": len(installments),
         "last_paid_installment": (
             {
@@ -676,6 +761,7 @@ def get_student_installment_details(
                 "payment_method": payment.payment_method,
                 "payment_date": payment.payment_date,
                 "status": payment.status,
+                "upi_transaction_id": payment.upi_transaction_id,
                 **installment_payment_status_fields(payment),
                 "credited_to_balance": payment.credited_to_balance,
                 "payment_reference": payment.payment_reference,
@@ -787,6 +873,7 @@ def get_my_enrollments(
 
             "total_fee": enrollment.total_fee,
             **enrollment_payment_summary(db, enrollment),
+            **enrollment_payment_review_summary(db, enrollment),
             "payments": [
                 {
                     "id": payment.id,
@@ -805,6 +892,7 @@ def get_my_enrollments(
                     "reviewed_at": payment.reviewed_at,
                     "rejection_reason": payment.rejection_reason,
                     "payment_reference": payment.payment_reference,
+                    "upi_transaction_id": payment.upi_transaction_id,
                 }
                 for payment in enrollment_payment_history(db, enrollment)
             ],
@@ -1611,13 +1699,83 @@ def get_installment_payment_rows(
     ).all()
 
 
-def serialize_installment_payment_rows(rows):
-    return [
-        build_installment_payment_record(
-            payment, enrollment, student, course, branch_name
+def serialize_installment_payment_groups(db: Session, rows):
+    groups = {}
+    for row in rows:
+        payment, enrollment, student, course, branch_name = row
+        key = (
+            enrollment.id,
+            payment.payment_reference or f"payment-{payment.id}",
         )
-        for payment, enrollment, student, course, branch_name in rows
-    ]
+        groups.setdefault(key, []).append(row)
+
+    grouped_payments = []
+    for group in groups.values():
+        payment, enrollment, student, course, branch_name = group[0]
+        allocations = [
+            build_installment_payment_record(*row)
+            for row in group
+        ]
+        payment_order = (
+            db.query(RazorpayPaymentOrder)
+            .filter(
+                RazorpayPaymentOrder.enrollment_id == enrollment.id,
+                RazorpayPaymentOrder.razorpay_payment_id
+                == payment.payment_reference,
+            )
+            .first()
+        )
+        installment_numbers = sorted(
+            {row[0].installment_number for row in group}
+        )
+        grouped_payments.append(
+            {
+                **allocations[0],
+                "amount": round(
+                    sum(float(row[0].amount or 0) for row in group), 2
+                ),
+                "total_amount": round(
+                    sum(float(row[0].amount or 0) for row in group), 2
+                ),
+                "is_full_balance_payment": bool(
+                    payment_order and payment_order.installment_id is None
+                ),
+                "payment_scope": (
+                    "full_balance"
+                    if payment_order and payment_order.installment_id is None
+                    else "installment"
+                ),
+                "payment_label": (
+                    "Full remaining course balance"
+                    if payment_order and payment_order.installment_id is None
+                    else "Installment payment"
+                ),
+                "installment_numbers": installment_numbers,
+                "allocations": allocations,
+            }
+        )
+    return grouped_payments
+
+
+def get_razorpay_payment_group(
+    db: Session,
+    payment: AdmissionPayment,
+    branch_id: int,
+    status: str,
+):
+    query = db.query(AdmissionPayment).filter(
+        AdmissionPayment.enrollment_id == payment.enrollment_id,
+        AdmissionPayment.branch_id == branch_id,
+        AdmissionPayment.payment_method == "razorpay",
+        AdmissionPayment.status == status,
+    )
+    if payment.payment_reference:
+        query = query.filter(
+            AdmissionPayment.payment_reference == payment.payment_reference
+        )
+    else:
+        query = query.filter(AdmissionPayment.id == payment.id)
+    return query.order_by(AdmissionPayment.installment_number.asc()).with_for_update().all()
 
 
 @router.get(
@@ -1674,36 +1832,108 @@ def record_branch_admin_installment_payment(
             detail="Enrollment not found in your branch",
         )
 
-    installment = (
-        db.query(EnrollmentInstallment)
-        .filter(
-            EnrollmentInstallment.enrollment_id == enrollment.id,
-            EnrollmentInstallment.installment_number == data.installment_number,
-        )
-        .with_for_update()
-        .first()
-    )
-    if not installment:
-        raise HTTPException(status_code=404, detail="Installment not found")
-
     cash_amount = round(data.cash_amount, 2)
     upi_amount = round(data.upi_amount, 2)
-    amount = round(cash_amount + upi_amount, 2)
-    installment_remaining = round(
-        installment.amount - installment.paid_amount, 2
-    )
-    enrollment_balance = round(enrollment.balance_amount or 0, 2)
-    pending_amount = (
-        db.query(func.coalesce(func.sum(AdmissionPayment.amount), 0))
-        .filter(
-            AdmissionPayment.installment_id == installment.id,
-            AdmissionPayment.status == "pending_review",
+    upi_transaction_id = (data.upi_transaction_id or "").strip() or None
+    if (upi_amount > 0) != bool(upi_transaction_id):
+        raise HTTPException(
+            status_code=400,
+            detail="UPI transaction ID is required when a UPI amount is provided and must not be sent for cash-only payments",
         )
-        .scalar()
-    ) or 0
-    available_amount = round(
-        min(installment_remaining, enrollment_balance) - pending_amount, 2
-    )
+    amount = round(cash_amount + upi_amount, 2)
+    payment_amount = amount
+    enrollment_balance = round(enrollment.balance_amount or 0, 2)
+    if data.pay_full_balance and data.installment_number is not None:
+        raise HTTPException(
+            status_code=400,
+            detail="Do not provide installment_number when paying the full balance",
+        )
+    if not data.pay_full_balance and data.installment_number is None:
+        raise HTTPException(
+            status_code=400,
+            detail="Select an installment or set pay_full_balance to true",
+        )
+
+    if data.pay_full_balance:
+        pending_review_payment = (
+            db.query(AdmissionPayment.id)
+            .filter(
+                AdmissionPayment.enrollment_id == enrollment.id,
+                AdmissionPayment.status == "pending_review",
+            )
+            .first()
+        )
+        if pending_review_payment:
+            raise HTTPException(
+                status_code=409,
+                detail=(
+                    "Cannot settle the full balance while a Razorpay payment "
+                    "is awaiting branch review"
+                ),
+            )
+        installments = (
+            db.query(EnrollmentInstallment)
+            .filter(
+                EnrollmentInstallment.enrollment_id == enrollment.id,
+                EnrollmentInstallment.status != "paid",
+            )
+            .order_by(EnrollmentInstallment.installment_number.asc())
+            .with_for_update()
+            .all()
+        )
+        available_amount = enrollment_balance
+        if amount != available_amount:
+            raise HTTPException(
+                status_code=400,
+                detail=(
+                    "Payment must equal the full remaining course balance "
+                    f"₹{available_amount:.2f}"
+                ),
+            )
+        if not installments or available_amount <= 0:
+            raise HTTPException(
+                status_code=400,
+                detail="There is no remaining course balance to pay",
+            )
+        if round(
+            sum(
+                installment.amount - installment.paid_amount
+                for installment in installments
+            ),
+            2,
+        ) != available_amount:
+            raise HTTPException(
+                status_code=409,
+                detail="Installment balances do not match the course balance",
+            )
+    else:
+        installment = (
+            db.query(EnrollmentInstallment)
+            .filter(
+                EnrollmentInstallment.enrollment_id == enrollment.id,
+                EnrollmentInstallment.installment_number == data.installment_number,
+            )
+            .with_for_update()
+            .first()
+        )
+        if not installment:
+            raise HTTPException(status_code=404, detail="Installment not found")
+        installments = [installment]
+        installment_remaining = round(
+            installment.amount - installment.paid_amount, 2
+        )
+        pending_amount = (
+            db.query(func.coalesce(func.sum(AdmissionPayment.amount), 0))
+            .filter(
+                AdmissionPayment.installment_id == installment.id,
+                AdmissionPayment.status == "pending_review",
+            )
+            .scalar()
+        ) or 0
+        available_amount = round(
+            min(installment_remaining, enrollment_balance) - pending_amount, 2
+        )
+
     if amount <= 0:
         raise HTTPException(status_code=400, detail="Enter a cash or UPI amount")
     if amount > available_amount:
@@ -1716,51 +1946,86 @@ def record_branch_admin_installment_payment(
         )
 
     payment_date = data.payment_date or date.today()
-    installment.paid_amount = round(installment.paid_amount + amount, 2)
-    installment.status = (
-        "paid" if installment.paid_amount >= installment.amount else "partial"
-    )
-    if installment.status == "paid":
-        installment.paid_amount = installment.amount
-        installment.paid_date = payment_date
-    installment.cash_amount = round(
-        (installment.cash_amount or 0) + cash_amount, 2
-    )
-    installment.upi_amount = round(
-        (installment.upi_amount or 0) + upi_amount, 2
-    )
+    payment_reference = f"BRANCH-{uuid4().hex}"
+    remaining_cash = cash_amount
+    remaining_upi = upi_amount
+    payments = []
+    for installment in installments:
+        installment_remaining = round(
+            installment.amount - installment.paid_amount, 2
+        )
+        if installment_remaining <= 0:
+            continue
+        allocation_amount = min(payment_amount, installment_remaining)
+        cash_for_installment = round(
+            min(remaining_cash, allocation_amount), 2
+        )
+        upi_for_installment = round(
+            allocation_amount - cash_for_installment, 2
+        )
 
-    payment = AdmissionPayment(
-        enrollment_id=enrollment.id,
-        installment_id=installment.id,
-        installment_number=installment.installment_number,
-        user_id=enrollment.user_id,
-        branch_id=enrollment.branch_id,
-        amount=amount,
-        cash_amount=cash_amount,
-        upi_amount=upi_amount,
-        payment_method=(
-            "cash_upi"
-            if cash_amount > 0 and upi_amount > 0
-            else "cash"
-            if cash_amount > 0
-            else "upi"
-        ),
-        payment_date=payment_date,
-        status="received",
-        credited_to_balance=True,
-        reviewed_by_user_id=current_user.id,
-        reviewed_at=datetime.now(timezone.utc),
-        payment_reference=f"BRANCH-{uuid4().hex}",
-    )
-    db.add(payment)
+        installment.paid_amount = round(
+            installment.paid_amount + allocation_amount, 2
+        )
+        installment.status = (
+            "paid" if installment.paid_amount >= installment.amount else "partial"
+        )
+        if installment.status == "paid":
+            installment.paid_amount = installment.amount
+            installment.paid_date = payment_date
+        installment.cash_amount = round(
+            (installment.cash_amount or 0) + cash_for_installment, 2
+        )
+        installment.upi_amount = round(
+            (installment.upi_amount or 0) + upi_for_installment, 2
+        )
+
+        payment = AdmissionPayment(
+            enrollment_id=enrollment.id,
+            installment_id=installment.id,
+            installment_number=installment.installment_number,
+            user_id=enrollment.user_id,
+            branch_id=enrollment.branch_id,
+            amount=allocation_amount,
+            cash_amount=cash_for_installment,
+            upi_amount=upi_for_installment,
+            payment_method=(
+                "cash_upi"
+                if cash_for_installment > 0 and upi_for_installment > 0
+                else "cash"
+                if cash_for_installment > 0
+                else "upi"
+            ),
+            payment_date=payment_date,
+            status="received",
+            credited_to_balance=True,
+            reviewed_by_user_id=current_user.id,
+            reviewed_at=datetime.now(timezone.utc),
+            payment_reference=payment_reference,
+            upi_transaction_id=upi_transaction_id if upi_for_installment > 0 else None,
+        )
+        db.add(payment)
+        payments.append(payment)
+        remaining_cash = round(remaining_cash - cash_for_installment, 2)
+        remaining_upi = round(remaining_upi - upi_for_installment, 2)
+        payment_amount = round(payment_amount - allocation_amount, 2)
+        if payment_amount <= 0:
+            break
+
+    if payment_amount > 0 or remaining_cash > 0 or remaining_upi > 0:
+        raise HTTPException(
+            status_code=409,
+            detail="Payment could not be allocated to the remaining installments",
+        )
+
     enrollment.total_paid = round((enrollment.total_paid or 0) + amount, 2)
     enrollment.balance_amount = max(
         round(enrollment.total_fee - enrollment.total_paid, 2), 0
     )
     enrollment.status = "paid" if enrollment.balance_amount == 0 else "pending"
     db.commit()
-    db.refresh(payment)
+    for payment in payments:
+        db.refresh(payment)
     student = db.query(User).filter(User.id == enrollment.user_id).first()
     course = db.query(Course).filter(Course.id == enrollment.course_id).first()
     branch = db.query(Branch).filter(Branch.id == branch_id).first()
@@ -1774,11 +2039,16 @@ def record_branch_admin_installment_payment(
                 branch.name if branch else "",
                 None,
             )
+            for payment in payments
         ]
     )
     return {
         "success": True,
-        "message": "BranchAdmin cash/UPI installment payment recorded",
+        "message": (
+            "BranchAdmin full remaining course balance recorded"
+            if data.pay_full_balance
+            else "BranchAdmin cash/UPI installment payment recorded"
+        ),
         "receipt": receipt,
         "receipt_url": f"/branch-admin/receipts/{receipt['receipt_id']}",
         "receipt_print_url": (
@@ -1788,12 +2058,23 @@ def record_branch_admin_installment_payment(
             f"/branch-admin/receipts/{receipt['receipt_id']}/download"
         ),
         **build_installment_payment_record(
-            payment,
+            payments[0],
             enrollment,
             student,
             course,
             branch.name if branch else "",
         ),
+        "amount": amount,
+        "payment_allocations": [
+            build_installment_payment_record(
+                payment,
+                enrollment,
+                student,
+                course,
+                branch.name if branch else "",
+            )
+            for payment in payments
+        ],
     }
 
 
@@ -1809,7 +2090,7 @@ def get_today_installment_payment_requests(
     rows = get_installment_payment_rows(
         db, branch_id, "pending_review", today_only=True
     )
-    payments = serialize_installment_payment_rows(rows)
+    payments = serialize_installment_payment_groups(db, rows)
     return {"date": date.today(), "count": len(payments), "payments": payments}
 
 
@@ -1823,7 +2104,7 @@ def get_pending_installment_payment_requests(
 ):
     branch_id = require_branch_admin(current_user)
     rows = get_installment_payment_rows(db, branch_id, "pending_review")
-    payments = serialize_installment_payment_rows(rows)
+    payments = serialize_installment_payment_groups(db, rows)
     return {"count": len(payments), "payments": payments}
 
 
@@ -1856,70 +2137,87 @@ def approve_installment_payment_request(
             detail="Only verified Razorpay payments require approval",
         )
 
+    payments = get_razorpay_payment_group(
+        db, payment, branch_id, "pending_review"
+    )
     enrollment = (
         db.query(Enrollment)
         .filter(Enrollment.id == payment.enrollment_id)
         .with_for_update()
         .first()
     )
-    installment = (
+    installment_ids = [row.installment_id for row in payments]
+    installments = (
         db.query(EnrollmentInstallment)
-        .filter(EnrollmentInstallment.id == payment.installment_id)
+        .filter(EnrollmentInstallment.id.in_(installment_ids))
+        .order_by(EnrollmentInstallment.installment_number.asc())
         .with_for_update()
-        .first()
+        .all()
     )
-    if not enrollment or not installment:
+    installments_by_id = {row.id: row for row in installments}
+    if (
+        not enrollment
+        or len(installments_by_id) != len(set(installment_ids))
+    ):
         raise HTTPException(status_code=409, detail="Payment installment was not found")
 
-    if not payment.credited_to_balance:
-        amount = round(payment.amount, 2)
-        installment_remaining = round(
-            installment.amount - installment.paid_amount, 2
-        )
-        enrollment_balance = round(enrollment.balance_amount or 0, 2)
-        if amount > installment_remaining or amount > enrollment_balance:
-            raise HTTPException(
-                status_code=409,
-                detail=(
-                    "Payment amount exceeds the current installment or "
-                    "enrollment balance"
-                ),
+    for grouped_payment in payments:
+        installment = installments_by_id[grouped_payment.installment_id]
+        if not grouped_payment.credited_to_balance:
+            amount = round(grouped_payment.amount, 2)
+            installment_remaining = round(
+                installment.amount - installment.paid_amount, 2
             )
+            enrollment_balance = round(enrollment.balance_amount or 0, 2)
+            if amount > installment_remaining or amount > enrollment_balance:
+                raise HTTPException(
+                    status_code=409,
+                    detail=(
+                        "Payment amount exceeds the current installment or "
+                        "enrollment balance"
+                    ),
+                )
 
-        installment.paid_amount = round(installment.paid_amount + amount, 2)
-        installment.status = (
-            "paid" if installment.paid_amount >= installment.amount else "partial"
-        )
-        if installment.status == "paid":
-            installment.paid_amount = installment.amount
-            installment.paid_date = payment.payment_date
-        enrollment.total_paid = round((enrollment.total_paid or 0) + amount, 2)
-        enrollment.balance_amount = max(
-            round(enrollment.total_fee - enrollment.total_paid, 2), 0
-        )
-        enrollment.status = "paid" if enrollment.balance_amount == 0 else "pending"
-        payment.credited_to_balance = True
+            installment.paid_amount = round(installment.paid_amount + amount, 2)
+            installment.status = (
+                "paid"
+                if installment.paid_amount >= installment.amount
+                else "partial"
+            )
+            if installment.status == "paid":
+                installment.paid_amount = installment.amount
+                installment.paid_date = grouped_payment.payment_date
+            enrollment.total_paid = round(
+                (enrollment.total_paid or 0) + amount, 2
+            )
+            enrollment.balance_amount = max(
+                round(enrollment.total_fee - enrollment.total_paid, 2), 0
+            )
+            enrollment.status = (
+                "paid" if enrollment.balance_amount == 0 else "pending"
+            )
+            grouped_payment.credited_to_balance = True
 
-    payment.status = "received"
-    payment.reviewed_by_user_id = current_user.id
-    payment.reviewed_at = datetime.now(timezone.utc)
-    payment.rejection_reason = None
+        grouped_payment.status = "received"
+        grouped_payment.reviewed_by_user_id = current_user.id
+        grouped_payment.reviewed_at = datetime.now(timezone.utc)
+        grouped_payment.rejection_reason = None
 
     db.commit()
-    db.refresh(payment)
-    student = db.query(User).filter(User.id == enrollment.user_id).first()
-    course = db.query(Course).filter(Course.id == enrollment.course_id).first()
-    branch = db.query(Branch).filter(Branch.id == branch_id).first()
+    rows = (
+        db.query(AdmissionPayment, Enrollment, User, Course, Branch.name)
+        .join(Enrollment, Enrollment.id == AdmissionPayment.enrollment_id)
+        .join(User, User.id == Enrollment.user_id)
+        .join(Course, Course.id == Enrollment.course_id)
+        .join(Branch, Branch.id == Enrollment.branch_id)
+        .filter(AdmissionPayment.id.in_([row.id for row in payments]))
+        .order_by(AdmissionPayment.installment_number.asc())
+        .all()
+    )
     return {
         "success": True,
         "message": "Razorpay payment verified by BranchAdmin",
-        **build_installment_payment_record(
-            payment,
-            enrollment,
-            student,
-            course,
-            branch.name if branch else "",
-        ),
+        **serialize_installment_payment_groups(db, rows)[0],
     }
 
 
@@ -1956,72 +2254,87 @@ def reject_installment_payment_request(
     if not reason:
         raise HTTPException(status_code=400, detail="Rejection reason is required")
 
+    payments = get_razorpay_payment_group(
+        db, payment, branch_id, "pending_review"
+    )
     enrollment = (
         db.query(Enrollment)
         .filter(Enrollment.id == payment.enrollment_id)
         .with_for_update()
         .first()
     )
-    installment = (
+    installment_ids = [row.installment_id for row in payments]
+    installments = (
         db.query(EnrollmentInstallment)
-        .filter(EnrollmentInstallment.id == payment.installment_id)
+        .filter(EnrollmentInstallment.id.in_(installment_ids))
+        .order_by(EnrollmentInstallment.installment_number.asc())
         .with_for_update()
-        .first()
+        .all()
     )
-    if not enrollment or not installment:
+    installments_by_id = {row.id: row for row in installments}
+    if (
+        not enrollment
+        or len(installments_by_id) != len(set(installment_ids))
+    ):
         raise HTTPException(status_code=409, detail="Payment installment was not found")
 
-    if payment.credited_to_balance:
-        amount = round(payment.amount, 2)
-        if (
-            amount > round(installment.paid_amount, 2)
-            or amount > round(enrollment.total_paid or 0, 2)
-        ):
-            raise HTTPException(
-                status_code=409,
-                detail="Cannot reverse this payment because credited totals changed",
+    for grouped_payment in payments:
+        installment = installments_by_id[grouped_payment.installment_id]
+        if grouped_payment.credited_to_balance:
+            amount = round(grouped_payment.amount, 2)
+            if (
+                amount > round(installment.paid_amount, 2)
+                or amount > round(enrollment.total_paid or 0, 2)
+            ):
+                raise HTTPException(
+                    status_code=409,
+                    detail=(
+                        "Cannot reverse this payment because credited totals changed"
+                    ),
+                )
+
+            installment.paid_amount = round(installment.paid_amount - amount, 2)
+            installment.status = (
+                "paid"
+                if installment.paid_amount >= installment.amount
+                else "partial"
+                if installment.paid_amount > 0
+                else "pending"
             )
+            if installment.status != "paid":
+                installment.paid_date = None
 
-        installment.paid_amount = round(installment.paid_amount - amount, 2)
-        installment.status = (
-            "paid"
-            if installment.paid_amount >= installment.amount
-            else "partial"
-            if installment.paid_amount > 0
-            else "pending"
-        )
-        if installment.status != "paid":
-            installment.paid_date = None
+            enrollment.total_paid = round(enrollment.total_paid - amount, 2)
+            enrollment.balance_amount = max(
+                round(enrollment.total_fee - enrollment.total_paid, 2), 0
+            )
+            enrollment.status = (
+                "paid" if enrollment.balance_amount == 0 else "pending"
+            )
+            grouped_payment.credited_to_balance = False
 
-        enrollment.total_paid = round(enrollment.total_paid - amount, 2)
-        enrollment.balance_amount = max(
-            round(enrollment.total_fee - enrollment.total_paid, 2), 0
-        )
-        enrollment.status = "paid" if enrollment.balance_amount == 0 else "pending"
-        payment.credited_to_balance = False
-
-    payment.status = "rejected"
-    payment.reviewed_by_user_id = current_user.id
-    payment.reviewed_at = datetime.now(timezone.utc)
-    payment.rejection_reason = reason
+        grouped_payment.status = "rejected"
+        grouped_payment.reviewed_by_user_id = current_user.id
+        grouped_payment.reviewed_at = datetime.now(timezone.utc)
+        grouped_payment.rejection_reason = reason
     db.commit()
-    db.refresh(payment)
-    student = db.query(User).filter(User.id == payment.user_id).first()
-    course = db.query(Course).filter(Course.id == enrollment.course_id).first()
-    branch = db.query(Branch).filter(Branch.id == branch_id).first()
+    rows = (
+        db.query(AdmissionPayment, Enrollment, User, Course, Branch.name)
+        .join(Enrollment, Enrollment.id == AdmissionPayment.enrollment_id)
+        .join(User, User.id == Enrollment.user_id)
+        .join(Course, Course.id == Enrollment.course_id)
+        .join(Branch, Branch.id == Enrollment.branch_id)
+        .filter(AdmissionPayment.id.in_([row.id for row in payments]))
+        .order_by(AdmissionPayment.installment_number.asc())
+        .all()
+    )
     return {
         "success": True,
         "message": (
             "Payment rejected and removed from the credited enrollment balance. "
             "This does not refund the Razorpay charge; process a refund separately."
         ),
-        **build_installment_payment_record(
-            payment,
-            enrollment,
-            student,
-            course,
-            branch.name if branch else "",
-        ),
+        **serialize_installment_payment_groups(db, rows)[0],
     }
 
 

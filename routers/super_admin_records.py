@@ -387,6 +387,7 @@ def get_all_students(
                         "payment_method": payment.payment_method,
                         "payment_date": payment.payment_date,
                         "status": payment.status,
+                        "upi_transaction_id": payment.upi_transaction_id,
                     }
                 )
 

@@ -969,6 +969,11 @@ class AdmissionPayment(Base):
         nullable=True
     )
 
+    upi_transaction_id = Column(
+        String,
+        nullable=True,
+    )
+
     # ========================================================
     # CREATED
     # ========================================================

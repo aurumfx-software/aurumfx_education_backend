@@ -271,6 +271,7 @@ def create_payment(
     upi_amount: float,
     payment_date: date,
     installment_number: int | None = None,
+    upi_transaction_id: str | None = None,
 ):
 
     total_amount = round(
@@ -280,6 +281,11 @@ def create_payment(
 
     if total_amount <= 0:
         return []
+    if (upi_amount > 0) != bool(upi_transaction_id):
+        raise HTTPException(
+            status_code=400,
+            detail="UPI transaction ID is required when a UPI amount is provided and must not be sent for cash-only payments",
+        )
 
     # ========================================================
     # CHECK BALANCE
@@ -494,6 +500,7 @@ def create_payment(
             status="received",
             credited_to_balance=True,
             payment_reference=payment_reference,
+            upi_transaction_id=upi_transaction_id,
         )
 
         db.add(payment)
@@ -663,6 +670,12 @@ def create_admission(
         cash_amount + upi_amount,
         2
     )
+    upi_transaction_id = (data.upi_transaction_id or "").strip() or None
+    if (upi_amount > 0) != bool(upi_transaction_id):
+        raise HTTPException(
+            status_code=400,
+            detail="UPI transaction ID is required when a UPI amount is provided and must not be sent for cash-only payments",
+        )
 
     # ========================================================
     # NOT RECEIVED
@@ -914,6 +927,8 @@ def create_admission(
             payment_date=admission_date,
 
             installment_number=data.installment_number,
+
+            upi_transaction_id=upi_transaction_id,
         )
 
     # ========================================================
@@ -1030,6 +1045,12 @@ def add_payment(
         data.upi_amount,
         2
     )
+    upi_transaction_id = (data.upi_transaction_id or "").strip() or None
+    if (upi_amount > 0) != bool(upi_transaction_id):
+        raise HTTPException(
+            status_code=400,
+            detail="UPI transaction ID is required when a UPI amount is provided and must not be sent for cash-only payments",
+        )
 
     amount = round(
         cash_amount + upi_amount,
@@ -1111,6 +1132,8 @@ def add_payment(
         payment_date=payment_date,
 
         installment_number=data.installment_number,
+
+        upi_transaction_id=upi_transaction_id,
     )
 
     db.commit()

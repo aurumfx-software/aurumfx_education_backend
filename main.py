@@ -130,6 +130,12 @@ try:
         conn.execute(
             text(
                 "ALTER TABLE admission_payments "
+                "ADD COLUMN IF NOT EXISTS upi_transaction_id VARCHAR;"
+            )
+        )
+        conn.execute(
+            text(
+                "ALTER TABLE admission_payments "
                 "ADD COLUMN IF NOT EXISTS credited_to_balance BOOLEAN "
                 "NOT NULL DEFAULT FALSE;"
             )

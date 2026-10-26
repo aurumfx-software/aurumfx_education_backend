@@ -20,6 +20,11 @@ from database_models import (
     User,
 )
 from routers.auth import get_current_user
+from routers.enrollments import (
+    enrollment_payment_history,
+    enrollment_payment_review_summary,
+    enrollment_payment_summary,
+)
 from schemas.assignment import AssignmentGradeUpdate
 from schemas.staff_task import StaffTaskCreate
 from utils.assignment_files import assignment_pdf_url
@@ -423,13 +428,33 @@ def get_my_course_students(
                 "account_status": user.status,
                 "enrollment": {
                     "enrollment_id": enrollment.id,
+                    "course_id": enrollment.course_id,
+                    "course_title": enrollment.course_title or course.title,
                     "admission_date": enrollment.admission_date,
                     "enrolled_at": enrollment.created_at,
+                    "total_fee": enrollment.total_fee,
+                    **enrollment_payment_summary(db, enrollment),
+                    **enrollment_payment_review_summary(db, enrollment),
+                    "payment_status": enrollment.status,
                     "course_status": enrollment.course_status,
                     "branch_approval_status": enrollment.branch_approval_status,
                     "super_admin_approval_status": (
                         enrollment.super_admin_approval_status
                     ),
+                    "payments": [
+                        {
+                            "payment_id": payment.id,
+                            "installment_id": payment.installment_id,
+                            "installment_number": payment.installment_number,
+                            "amount": payment.amount,
+                            "payment_method": payment.payment_method,
+                            "payment_date": payment.payment_date,
+                            "status": payment.status,
+                            "payment_reference": payment.payment_reference,
+                            "credited_to_balance": payment.credited_to_balance,
+                        }
+                        for payment in enrollment_payment_history(db, enrollment)
+                    ],
                 },
             }
         )

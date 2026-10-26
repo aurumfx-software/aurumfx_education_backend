@@ -160,6 +160,8 @@ def build_branch_receipt(group):
     )
     if receipt_amount >= float(enrollment.total_fee):
         payment_type = "Full course payment"
+    elif float(enrollment.balance_amount or 0) <= 0:
+        payment_type = "Remaining course balance settlement"
     elif len(installment_numbers) == 1:
         payment_type = f"Installment {installment_numbers[0]} of {installment_count}"
     elif installment_numbers:
@@ -219,6 +221,10 @@ def build_branch_receipt(group):
         "transaction_reference": (
             payment.payment_reference
             or f"PAY-{receipt_id:06d}"
+        ),
+        "upi_transaction_id": next(
+            (row.upi_transaction_id for row in payment_rows if row.upi_transaction_id),
+            "",
         ),
         "cash_amount": cash_amount,
         "upi_amount": upi_amount,
