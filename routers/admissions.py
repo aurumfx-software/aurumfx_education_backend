@@ -962,12 +962,12 @@ def create_admission(
                 for payment in initial_payments
             ]
         )
-        response.receipt = receipt
-        response.receipt_url = (
+        response["receipt"] = receipt
+        response["receipt_url"] = (
             f"/branch-admin/receipts/{receipt['receipt_id']}"
         )
-        response.receipt_print_url = response.receipt_url
-        response.receipt_download_url = (
+        response["receipt_print_url"] = response["receipt_url"]
+        response["receipt_download_url"] = (
             f"/branch-admin/receipts/{receipt['receipt_id']}/download"
         )
     return response
