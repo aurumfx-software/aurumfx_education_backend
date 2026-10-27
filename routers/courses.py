@@ -30,6 +30,7 @@ from utils.spaces import (
     spaces_client,
     SPACES_BUCKET,
 )
+from utils.gst import get_course_amounts
 
 
 router = APIRouter(
@@ -354,6 +355,8 @@ def add_course(
             detail="Course price must be greater than 0",
         )
 
+    course_amounts = get_course_amounts(db, price)
+
     # ========================================================
     # VALIDATE COURSE DATES
     # ========================================================
@@ -394,7 +397,7 @@ def add_course(
     installment_terms_data = validate_installment_terms(
         installment_terms=installment_terms,
         installment_count=installment_count_data,
-        course_price=price,
+        course_price=course_amounts["price"],
         start_date=start_date,
         end_date=end_date,
     )
@@ -446,7 +449,7 @@ def add_course(
         # COURSE INFORMATION
         title=title,
         description=description,
-        price=price,
+        **course_amounts,
         duration=duration,
 
         category=category,
@@ -632,6 +635,8 @@ def update_course(
             detail="Course price must be greater than 0",
         )
 
+    course_amounts = get_course_amounts(db, price)
+
     # ========================================================
     # VALIDATE COURSE DATES
     # ========================================================
@@ -672,7 +677,7 @@ def update_course(
     installment_terms_data = validate_installment_terms(
         installment_terms=installment_terms,
         installment_count=installment_count_data,
-        course_price=price,
+        course_price=course_amounts["price"],
         start_date=start_date,
         end_date=end_date,
     )
@@ -685,7 +690,8 @@ def update_course(
 
     db_course.description = description
 
-    db_course.price = price
+    for field, value in course_amounts.items():
+        setattr(db_course, field, value)
 
     db_course.duration = duration
 

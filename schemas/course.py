@@ -25,6 +25,14 @@ class CourseResponse(BaseModel):
     title: str
     description: str
     price: float
+    base_price: float
+    cgst_percent: float
+    sgst_percent: float
+    total_gst_percent: float
+    cgst_amount: float
+    sgst_amount: float
+    total_gst_amount: float
+    total_amount: float
     duration: str
 
     image: str | None = None

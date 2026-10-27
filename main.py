@@ -29,6 +29,7 @@ from routers import (
     super_admin_staff,
     super_admin_staff_verification,
     super_admin_courses,
+    super_admin_gst,
     branch_dashboard,
     super_admin_dashboard,
     branch_profit,
@@ -285,6 +286,27 @@ try:
             )
         )
 
+        for column_definition in (
+            "base_price FLOAT NOT NULL DEFAULT 0",
+            "cgst_percent FLOAT NOT NULL DEFAULT 0",
+            "sgst_percent FLOAT NOT NULL DEFAULT 0",
+            "cgst_amount FLOAT NOT NULL DEFAULT 0",
+            "sgst_amount FLOAT NOT NULL DEFAULT 0",
+        ):
+            conn.execute(
+                text(
+                    "ALTER TABLE courses "
+                    f"ADD COLUMN IF NOT EXISTS {column_definition};"
+                )
+            )
+
+        conn.execute(
+            text(
+                "UPDATE courses SET base_price = price "
+                "WHERE base_price = 0 AND price > 0;"
+            )
+        )
+
         conn.execute(
             text(
                 "ALTER TABLE announcements "
@@ -437,6 +459,8 @@ app.include_router(student_management.router)
 app.include_router(courses.router)
 
 app.include_router(super_admin_courses.router)
+
+app.include_router(super_admin_gst.router)
 
 app.include_router(enquiries.router)
 

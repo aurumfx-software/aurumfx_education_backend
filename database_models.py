@@ -232,6 +232,36 @@ class Course(Base):
         nullable=False
     )
 
+    base_price = Column(
+        Float,
+        nullable=False,
+        default=0,
+    )
+
+    cgst_percent = Column(
+        Float,
+        nullable=False,
+        default=0,
+    )
+
+    sgst_percent = Column(
+        Float,
+        nullable=False,
+        default=0,
+    )
+
+    cgst_amount = Column(
+        Float,
+        nullable=False,
+        default=0,
+    )
+
+    sgst_amount = Column(
+        Float,
+        nullable=False,
+        default=0,
+    )
+
     duration = Column(
         String,
         nullable=False
@@ -303,6 +333,18 @@ class Course(Base):
         DateTime(timezone=True),
         server_default=func.now()
     )
+
+    @property
+    def total_gst_percent(self):
+        return round(self.cgst_percent + self.sgst_percent, 2)
+
+    @property
+    def total_gst_amount(self):
+        return round(self.cgst_amount + self.sgst_amount, 2)
+
+    @property
+    def total_amount(self):
+        return self.price
 
 
 # ============================================================
@@ -425,6 +467,19 @@ class SystemSettings(Base):
         DateTime(timezone=True),
         server_default=func.now(),
         onupdate=func.now()
+    )
+
+
+class GSTSettings(Base):
+    __tablename__ = "gst_settings"
+
+    id = Column(Integer, primary_key=True)
+    cgst_percent = Column(Float, nullable=False, default=0)
+    sgst_percent = Column(Float, nullable=False, default=0)
+    updated_at = Column(
+        DateTime(timezone=True),
+        server_default=func.now(),
+        onupdate=func.now(),
     )
 
 

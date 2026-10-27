@@ -24,6 +24,7 @@ from routers.courses import (
 from schemas.course import BranchAdminCourseResponse
 from schemas.super_admin_course import SuperAdminCourseCreateResult
 from utils.spaces import SPACES_BUCKET, spaces_client
+from utils.gst import get_course_amounts
 
 
 router = APIRouter(
@@ -54,6 +55,7 @@ def get_active_branch(db: Session, branch_id: int) -> Branch:
 
 
 def parse_course_data(
+    db: Session,
     title: str,
     description: str,
     price: float,
@@ -67,8 +69,7 @@ def parse_course_data(
     installment_count: int,
     installment_terms: str,
 ):
-    if price <= 0:
-        raise HTTPException(status_code=400, detail="Course price must be greater than 0")
+    course_amounts = get_course_amounts(db, price)
     if start_date > end_date:
         raise HTTPException(status_code=400, detail="Start date cannot be after end date")
 
@@ -84,14 +85,14 @@ def parse_course_data(
     terms = validate_installment_terms(
         installment_terms=installment_terms,
         installment_count=count,
-        course_price=price,
+        course_price=course_amounts["price"],
         start_date=start_date,
         end_date=end_date,
     )
     return {
         "title": title,
         "description": description,
-        "price": price,
+        **course_amounts,
         "duration": duration,
         "category": category,
         "level": level,
@@ -291,6 +292,7 @@ def create_course_for_branches(
         )
 
     course_data = parse_course_data(
+        db,
         title,
         description,
         price,
@@ -380,6 +382,7 @@ def create_branch_course(
 ):
     get_active_branch(db, branch_id)
     course_data = parse_course_data(
+        db,
         title,
         description,
         price,
@@ -441,6 +444,7 @@ def update_branch_course(
         raise HTTPException(status_code=404, detail="Course not found in this branch")
 
     course_data = parse_course_data(
+        db,
         title,
         description,
         price,
