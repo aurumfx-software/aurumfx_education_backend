@@ -1,5 +1,4 @@
 import os
-
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from sqlalchemy import text
@@ -54,14 +53,7 @@ from routers import (
     student_management,
 )
 
-
 app = FastAPI()
-
-
-# ==========================================
-# CORS
-# ==========================================
-
 allowed_origins_env = os.getenv("ALLOWED_ORIGINS")
 
 origins = (
@@ -79,18 +71,10 @@ app.add_middleware(
 )
 
 
-# ==========================================
-# DATABASE TABLE CREATION
-# ==========================================
-
 database_models.Base.metadata.create_all(
     bind=engine
 )
 
-
-# ==========================================
-# DATABASE MIGRATIONS
-# ==========================================
 
 try:
     with engine.connect() as conn:
@@ -161,10 +145,7 @@ try:
             )
         )
 
-        # --------------------------------------
-        # USERS
-        # --------------------------------------
-
+        
         conn.execute(
             text(
                 "ALTER TABLE users "
@@ -179,9 +160,7 @@ try:
             )
         )
 
-        # --------------------------------------
-        # ENQUIRIES
-        # --------------------------------------
+        
 
         conn.execute(
             text(
@@ -214,9 +193,7 @@ try:
             )
         )
 
-        # --------------------------------------
-        # ENROLLMENTS
-        # --------------------------------------
+        
 
         conn.execute(
             text(
@@ -428,9 +405,6 @@ except Exception as e:
     print(f"Migration note: {e}")
 
 
-# ==========================================
-# UPLOADS DIRECTORY
-# ==========================================
 
 os.makedirs(
     "uploads",
@@ -438,118 +412,57 @@ os.makedirs(
 )
 
 
-# ==========================================
-# STATIC FILES
-# ==========================================
-
 app.mount(
     "/uploads",
     StaticFiles(directory="uploads"),
     name="uploads"
 )
 
-
-# ==========================================
-# ROUTERS
-# ==========================================
-
 app.include_router(auth.router)
-
 app.include_router(student_management.router)
-
 app.include_router(courses.router)
-
 app.include_router(super_admin_courses.router)
-
 app.include_router(super_admin_gst.router)
-
 app.include_router(branch_admin_gst.router)
-
 app.include_router(enquiries.router)
-
 app.include_router(super_admin_enquiries.router)
-
 app.include_router(super_admin_records.router)
-
 app.include_router(settings.router)
-
 app.include_router(enrollments.router)
-
 app.include_router(super_admin_enrollments.router)
-
 app.include_router(announcements.router)
-
 app.include_router(super_admin_branch_announcements.router)
-
 app.include_router(profile.router)
-
-# Super Admin branch routes
 app.include_router(branches.router)
-
-# Public branch routes
 app.include_router(branches.public_router)
-
 app.include_router(branch_announcements.router)
-
 app.include_router(payments.router)
-
-# Branch admin staff routes
 app.include_router(staff.router)
-
 app.include_router(staff_portal.router)
 app.include_router(student_study_materials.router)
 app.include_router(student_assignments.router)
 app.include_router(course_announcements.router)
 app.include_router(sidebar_navigation.router)
 app.include_router(branch_admin_staff_verification.router)
-
-# Super admin staff routes
 app.include_router(super_admin_staff.router)
 app.include_router(super_admin_staff_verification.router)
-
-# Branch admin dashboard routes
 app.include_router(branch_dashboard.router)
-
 app.include_router(super_admin_dashboard.router)
-
-# Branch profit routes
 app.include_router(branch_profit.router)
-
 app.include_router(super_admin_branch_profit.router)
-
 app.include_router(branch_expenses.router)
 app.include_router(super_admin_expenses.router)
 app.include_router(branch_receipts.router)
 app.include_router(super_admin_receipts.router)
-
 app.include_router(super_admin_attendance.router)
-
-# Branch admin staff attendance routes
 app.include_router(staff_attendance.router)
-
-# ==========================================
-# BRANCH ADMIN ATTENDANCE ROUTES
-# ==========================================
 app.include_router(branch_admin_attendance.router)
-
-# ==========================================
-# MESSAGES ROUTES
-# ==========================================
 app.include_router(messages.router)
 app.include_router(student_staff_messages.router)
 app.include_router(staff_super_admin_messages.router)
 app.include_router(staff_monitoring.router)
-
-
-# ==========================================
-# ADMISSIONS ROUTES
-# ==========================================
 app.include_router(admissions.router)
 
-
-# ==========================================
-# ROOT
-# ==========================================
 
 @app.get("/")
 def greet():

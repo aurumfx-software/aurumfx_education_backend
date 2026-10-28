@@ -71,9 +71,6 @@ def request_forgot_password_otp(
     db: Session = Depends(get_db),
 ):
     email = request.email.lower()
-    generic_response = {
-        "message": "If an eligible account exists, an OTP has been sent to the email address"
-    }
 
     user = (
         db.query(User)
@@ -85,7 +82,9 @@ def request_forgot_password_otp(
         .first()
     )
     if not user:
-        return generic_response
+        return {
+            "message": "This email address is not registered as an active student account"
+        }
 
     now = utc_now()
     recent_request = (
@@ -98,7 +97,12 @@ def request_forgot_password_otp(
         .first()
     )
     if recent_request:
-        return generic_response
+        return {
+            "message": (
+                "An OTP was already sent recently. "
+                "Please wait 60 seconds before requesting another OTP."
+            )
+        }
 
     db.query(PasswordResetOTP).filter(
         PasswordResetOTP.email == email,
@@ -122,7 +126,12 @@ def request_forgot_password_otp(
         db.commit()
         raise
 
-    return generic_response
+    return {
+        "message": (
+            "OTP sent successfully. "
+            "Please check your inbox and spam folder."
+        )
+    }
 
 
 @router.post(
