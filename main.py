@@ -30,6 +30,7 @@ from routers import (
     super_admin_staff_verification,
     super_admin_courses,
     super_admin_gst,
+    branch_admin_gst,
     branch_dashboard,
     super_admin_dashboard,
     branch_profit,
@@ -461,6 +462,8 @@ app.include_router(courses.router)
 app.include_router(super_admin_courses.router)
 
 app.include_router(super_admin_gst.router)
+
+app.include_router(branch_admin_gst.router)
 
 app.include_router(enquiries.router)
 
