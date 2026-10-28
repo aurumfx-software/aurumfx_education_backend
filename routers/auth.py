@@ -1,3 +1,6 @@
+import hashlib
+import secrets
+from datetime import datetime, timedelta, timezone
 from typing import List
 
 from fastapi import APIRouter, Depends, HTTPException
@@ -6,13 +9,16 @@ from sqlalchemy import or_
 from sqlalchemy.orm import Session
 
 from database import SessionLocal
-from database_models import User, Branch, Staff
+from database_models import User, Branch, Staff, PasswordResetOTP
 
 from schemas.user import (
     UserRegister,
     UserLogin,
     UserResponse,
     Changepassword,
+    ForgotPasswordRequest,
+    VerifyForgotPasswordOTP,
+    ResetForgottenPassword,
     BranchAdminLogin,
     SuperAdminLogin,
 )
@@ -20,6 +26,7 @@ from schemas.staff import StaffLogin
 
 from utils.password import hash_password, verify_password
 from utils.jwt import create_access_token, decode_access_token
+from utils.email import send_password_reset_otp
 
 
 router = APIRouter(
@@ -45,6 +52,172 @@ def get_db():
         yield db
     finally:
         db.close()
+
+
+def hash_reset_token(value: str) -> str:
+    return hashlib.sha256(value.encode("utf-8")).hexdigest()
+
+
+def utc_now() -> datetime:
+    return datetime.now(timezone.utc)
+
+
+@router.post(
+    "/forgot-password/request-otp",
+    tags=["Student Password Reset"],
+)
+def request_forgot_password_otp(
+    request: ForgotPasswordRequest,
+    db: Session = Depends(get_db),
+):
+    email = request.email.lower()
+    generic_response = {
+        "message": "If an eligible account exists, an OTP has been sent to the email address"
+    }
+
+    user = (
+        db.query(User)
+        .filter(
+            User.email == email,
+            User.role == "user",
+            User.status == "Active",
+        )
+        .first()
+    )
+    if not user:
+        return generic_response
+
+    now = utc_now()
+    recent_request = (
+        db.query(PasswordResetOTP)
+        .filter(
+            PasswordResetOTP.email == email,
+            PasswordResetOTP.created_at >= now - timedelta(seconds=60),
+            PasswordResetOTP.used_at.is_(None),
+        )
+        .first()
+    )
+    if recent_request:
+        return generic_response
+
+    db.query(PasswordResetOTP).filter(
+        PasswordResetOTP.email == email,
+        PasswordResetOTP.used_at.is_(None),
+    ).update({"used_at": now}, synchronize_session=False)
+
+    otp = f"{secrets.randbelow(1_000_000):06d}"
+    reset_request = PasswordResetOTP(
+        email=email,
+        otp_hash=hash_reset_token(otp),
+        expires_at=now + timedelta(minutes=10),
+        attempts=0,
+    )
+    db.add(reset_request)
+    db.commit()
+
+    try:
+        send_password_reset_otp(email, otp)
+    except HTTPException:
+        db.delete(reset_request)
+        db.commit()
+        raise
+
+    return generic_response
+
+
+@router.post(
+    "/forgot-password/verify-otp",
+    tags=["Student Password Reset"],
+)
+def verify_forgot_password_otp(
+    request: VerifyForgotPasswordOTP,
+    db: Session = Depends(get_db),
+):
+    email = request.email.lower()
+    reset_request = (
+        db.query(PasswordResetOTP)
+        .filter(
+            PasswordResetOTP.email == email,
+            PasswordResetOTP.used_at.is_(None),
+            PasswordResetOTP.verified_at.is_(None),
+        )
+        .order_by(PasswordResetOTP.id.desc())
+        .first()
+    )
+
+    if (
+        not reset_request
+        or reset_request.expires_at <= utc_now()
+        or reset_request.attempts >= 5
+    ):
+        raise HTTPException(status_code=400, detail="Invalid or expired OTP")
+
+    reset_request.attempts += 1
+    if not secrets.compare_digest(
+        reset_request.otp_hash,
+        hash_reset_token(request.otp),
+    ):
+        db.commit()
+        raise HTTPException(status_code=400, detail="Invalid or expired OTP")
+
+    reset_token = secrets.token_urlsafe(32)
+    reset_request.reset_token_hash = hash_reset_token(reset_token)
+    reset_request.verified_at = utc_now()
+    db.commit()
+
+    return {
+        "message": "OTP verified successfully",
+        "reset_token": reset_token,
+    }
+
+
+@router.post(
+    "/forgot-password/reset",
+    tags=["Student Password Reset"],
+)
+def reset_forgotten_password(
+    request: ResetForgottenPassword,
+    db: Session = Depends(get_db),
+):
+    email = request.email.lower()
+    reset_request = (
+        db.query(PasswordResetOTP)
+        .filter(
+            PasswordResetOTP.email == email,
+            PasswordResetOTP.used_at.is_(None),
+            PasswordResetOTP.verified_at.is_not(None),
+        )
+        .order_by(PasswordResetOTP.id.desc())
+        .first()
+    )
+    if (
+        not reset_request
+        or reset_request.expires_at <= utc_now()
+        or not reset_request.reset_token_hash
+        or not secrets.compare_digest(
+            reset_request.reset_token_hash,
+            hash_reset_token(request.reset_token),
+        )
+    ):
+        raise HTTPException(status_code=400, detail="Invalid or expired reset token")
+
+    user = (
+        db.query(User)
+        .filter(
+            User.email == email,
+            User.role == "user",
+            User.status == "Active",
+        )
+        .first()
+    )
+    if not user:
+        raise HTTPException(status_code=400, detail="Invalid or expired reset token")
+
+    user.password_hash = hash_password(request.new_password)
+    reset_request.used_at = utc_now()
+    db.commit()
+
+    return {"message": "Password reset successfully"}
 
 
 # ==========================================

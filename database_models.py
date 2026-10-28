@@ -129,6 +129,27 @@ class User(Base):
 
 
 # ============================================================
+# PASSWORD RESET OTP
+# ============================================================
+
+class PasswordResetOTP(Base):
+    __tablename__ = "password_reset_otps"
+
+    id = Column(Integer, primary_key=True, index=True)
+    email = Column(String, nullable=False, index=True)
+    otp_hash = Column(String, nullable=False)
+    reset_token_hash = Column(String, nullable=True)
+    expires_at = Column(DateTime(timezone=True), nullable=False)
+    verified_at = Column(DateTime(timezone=True), nullable=True)
+    used_at = Column(DateTime(timezone=True), nullable=True)
+    attempts = Column(Integer, nullable=False, default=0)
+    created_at = Column(
+        DateTime(timezone=True),
+        server_default=func.now(),
+    )
+
+
+# ============================================================
 # BRANCH
 # ============================================================
 

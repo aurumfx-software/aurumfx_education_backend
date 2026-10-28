@@ -1,7 +1,7 @@
 from datetime import datetime
 from typing import Optional
 
-from pydantic import BaseModel, EmailStr, ConfigDict, model_validator
+from pydantic import BaseModel, EmailStr, ConfigDict, Field, model_validator
 
 
 class UserRegister(BaseModel):
@@ -73,3 +73,25 @@ class UserResponse(BaseModel):
 class Changepassword(BaseModel):
     current_password: str
     new_password: str
+
+
+class ForgotPasswordRequest(BaseModel):
+    email: EmailStr
+
+
+class VerifyForgotPasswordOTP(BaseModel):
+    email: EmailStr
+    otp: str = Field(min_length=6, max_length=6, pattern=r"^\d{6}$")
+
+
+class ResetForgottenPassword(BaseModel):
+    email: EmailStr
+    reset_token: str = Field(min_length=20)
+    new_password: str = Field(min_length=8)
+    confirm_password: str = Field(min_length=8)
+
+    @model_validator(mode="after")
+    def passwords_must_match(self):
+        if self.new_password != self.confirm_password:
+            raise ValueError("New password and confirm password must match")
+        return self
