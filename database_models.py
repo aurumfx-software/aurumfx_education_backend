@@ -369,6 +369,48 @@ class Course(Base):
 
 
 # ============================================================
+# COURSE REVIEW
+# ============================================================
+
+class CourseReview(Base):
+    __tablename__ = "course_reviews"
+    __table_args__ = (
+        UniqueConstraint(
+            "user_id",
+            "course_id",
+            name="uq_course_review_user_course",
+        ),
+    )
+
+    id = Column(Integer, primary_key=True, index=True)
+    user_id = Column(
+        Integer,
+        ForeignKey("users.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    course_id = Column(
+        Integer,
+        ForeignKey("courses.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    branch_id = Column(
+        Integer,
+        ForeignKey("branches.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    review = Column(Text, nullable=False)
+    rating = Column(Integer, nullable=True)
+    created_at = Column(
+        DateTime(timezone=True),
+        server_default=func.now(),
+        nullable=False,
+    )
+
+
+# ============================================================
 # ENQUIRY
 # ============================================================
 

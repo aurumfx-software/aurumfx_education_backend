@@ -51,6 +51,7 @@ from routers import (
     staff_monitoring,
     student_study_materials,
     student_management,
+    course_reviews,
 )
 
 app = FastAPI()
@@ -420,6 +421,7 @@ app.mount(
 
 app.include_router(auth.router)
 app.include_router(student_management.router)
+app.include_router(course_reviews.router)
 app.include_router(courses.router)
 app.include_router(super_admin_courses.router)
 app.include_router(super_admin_gst.router)
