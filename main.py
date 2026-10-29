@@ -194,6 +194,14 @@ try:
             )
         )
 
+        conn.execute(
+            text(
+                "ALTER TABLE enquiries "
+                "ADD COLUMN IF NOT EXISTS contact_status "
+                "VARCHAR NOT NULL DEFAULT 'not_contacted';"
+            )
+        )
+
         
 
         conn.execute(

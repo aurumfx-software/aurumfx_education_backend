@@ -1,5 +1,5 @@
 from datetime import datetime
-from typing import Optional
+from typing import Literal, Optional
 from pydantic import BaseModel, ConfigDict, Field
 
 
@@ -20,6 +20,10 @@ class EnquiryStatusUpdate(BaseModel):
     status: str
 
 
+class EnquiryContactStatusUpdate(BaseModel):
+    contact_status: Literal["not_contacted", "contacted"]
+
+
 class EnquiryResponse(BaseModel):
     id: int
     branch_id: int | None = None
@@ -32,11 +36,11 @@ class EnquiryResponse(BaseModel):
     message: Optional[str] = None
     status: str
     branch_admin_status: str = "pending"
+    contact_status: str = "not_contacted"
     branch_admin_read_at: Optional[datetime] = None
     created_at: Optional[datetime] = None
 
     model_config = ConfigDict(from_attributes=True, populate_by_name=True)
-
 
 
 

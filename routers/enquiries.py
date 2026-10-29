@@ -9,6 +9,7 @@ from database_models import Enquiry, User, Branch
 
 from schemas.enquiry import (
     EnquiryCreate,
+    EnquiryContactStatusUpdate,
     EnquiryStatusUpdate,
     EnquiryResponse
 )
@@ -152,6 +153,7 @@ def get_branch_admin_enquiries(
             "message": enquiry.message,
             "status": enquiry.status,
             "branch_admin_status": enquiry.branch_admin_status,
+            "contact_status": enquiry.contact_status,
             "branch_admin_read_at": enquiry.branch_admin_read_at,
             "created_at": enquiry.created_at,
         }
@@ -212,7 +214,55 @@ def mark_branch_admin_enquiry_read(
         "id": enquiry.id,
         "branch_id": enquiry.branch_id,
         "branch_admin_status": enquiry.branch_admin_status,
+        "contact_status": enquiry.contact_status,
         "branch_admin_read_at": enquiry.branch_admin_read_at,
+    }
+
+
+@router.put(
+    "/branch-admin/{enquiry_id}/contact-status",
+    tags=["Branch Admin Enquiries"],
+)
+def update_branch_admin_contact_status(
+    enquiry_id: int,
+    status_data: EnquiryContactStatusUpdate,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    if current_user.role != "branch_admin":
+        raise HTTPException(
+            status_code=403,
+            detail="Branch admin access required",
+        )
+    if not current_user.branch_id:
+        raise HTTPException(
+            status_code=400,
+            detail="Branch admin is not assigned to a branch",
+        )
+
+    enquiry = (
+        db.query(Enquiry)
+        .filter(
+            Enquiry.id == enquiry_id,
+            Enquiry.branch_id == current_user.branch_id,
+        )
+        .first()
+    )
+    if not enquiry:
+        raise HTTPException(
+            status_code=404,
+            detail="Enquiry not found in your branch",
+        )
+
+    enquiry.contact_status = status_data.contact_status
+    db.commit()
+    db.refresh(enquiry)
+
+    return {
+        "message": "Enquiry contact status updated",
+        "id": enquiry.id,
+        "branch_id": enquiry.branch_id,
+        "contact_status": enquiry.contact_status,
     }
 
 

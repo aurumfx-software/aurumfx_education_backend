@@ -245,6 +245,7 @@ def get_all_enquiries(
                 "message": enquiry.message,
                 "status": enquiry.status,
                 "branch_admin_status": enquiry.branch_admin_status,
+                "contact_status": enquiry.contact_status,
                 "branch_admin_read_at": enquiry.branch_admin_read_at,
                 "created_at": enquiry.created_at,
             }

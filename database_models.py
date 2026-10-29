@@ -472,6 +472,12 @@ class Enquiry(Base):
         nullable=False
     )
 
+    contact_status = Column(
+        String,
+        default="not_contacted",
+        nullable=False
+    )
+
     branch_admin_read_at = Column(
         DateTime(timezone=True),
         nullable=True
