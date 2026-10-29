@@ -55,6 +55,7 @@ def build_enrollment_response(
         "user_id": enrollment.user_id,
         "course_id": enrollment.course_id,
         "branch_id": enrollment.branch_id,
+        "account_status": user.status,
         "name": enrollment.name,
         "email": enrollment.email,
         "phone": enrollment.phone,
