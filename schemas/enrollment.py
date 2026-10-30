@@ -191,7 +191,7 @@ class AdminEnrollmentResponse(BaseModel):
     account_status: str
     name: str
     email: str
-    phone: str
+    phone: str | None = None
 
     parent_name: str | None = None
     parent_phone: str | None = None

@@ -25,6 +25,7 @@ def calculate_course_amounts(
     cgst_percent: float,
     sgst_percent: float,
 ) -> dict[str, float]:
+    """Treat the entered course price as the final GST-inclusive price."""
     if not math.isfinite(base_price) or base_price <= 0:
         raise HTTPException(
             status_code=400,
@@ -32,20 +33,16 @@ def calculate_course_amounts(
         )
 
     base_price = round(base_price, 2)
-    cgst_amount = round(base_price * cgst_percent / 100, 2)
-    sgst_amount = round(base_price * sgst_percent / 100, 2)
-    total_amount = round(base_price + cgst_amount + sgst_amount, 2)
 
     return {
         "base_price": base_price,
-        "cgst_percent": cgst_percent,
-        "sgst_percent": sgst_percent,
-        "cgst_amount": cgst_amount,
-        "sgst_amount": sgst_amount,
-        "price": total_amount,
+        "cgst_percent": 0,
+        "sgst_percent": 0,
+        "cgst_amount": 0,
+        "sgst_amount": 0,
+        "price": base_price,
     }
 
 
 def get_course_amounts(db: Session, base_price: float) -> dict[str, float]:
-    cgst_percent, sgst_percent = get_gst_percentages(db)
-    return calculate_course_amounts(base_price, cgst_percent, sgst_percent)
+    return calculate_course_amounts(base_price, 0, 0)
