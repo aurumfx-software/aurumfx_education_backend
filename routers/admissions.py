@@ -1217,7 +1217,6 @@ def get_due_admissions(
         )
         .filter(
             Enrollment.branch_id == current_user.branch_id,
-            Enrollment.created_by_branch_admin_id == current_user.id,
             EnrollmentInstallment.due_date <= today,
             EnrollmentInstallment.paid_amount < EnrollmentInstallment.amount,
         )
