@@ -12,8 +12,11 @@ router = APIRouter(tags=["Sidebar Navigation"])
 NAV_LINKS = {
     "dashboard": {"label": "Dashboard", "section": "Workspace"},
     "courses": {"label": "Courses", "section": "Workspace"},
+    "course_reviews": {"label": "Course reviews", "section": "Courses"},
     "staff": {"label": "Staff", "section": "Workspace"},
+    "all_staff": {"label": "All staffs", "section": "Staff"},
     "staff_verification": {"label": "Staff verification", "section": "Workspace"},
+    "staff_monitoring": {"label": "Staff monitoring", "section": "Staff"},
     "my_attendance": {"label": "My attendance", "section": "Workspace"},
     "register_student": {"label": "Register student", "section": "Students"},
     "view_students": {"label": "View students", "section": "Students"},
@@ -22,6 +25,9 @@ NAV_LINKS = {
     "fees_due_students": {"label": "Fees due students", "section": "Students"},
     "student_fees": {"label": "Student fees", "section": "Students"},
     "enquiries": {"label": "Enquiries", "section": "Students"},
+    "branch_revenue": {"label": "Branch Revenue", "section": "Finance"},
+    "student_receipts": {"label": "Student Receipts", "section": "Finance"},
+    "branch_expenses": {"label": "Branch expenses", "section": "Finance"},
     "announcements": {"label": "Announcements", "section": "Business"},
     "messages": {"label": "Messages", "section": "Business"},
 }
