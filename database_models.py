@@ -1530,6 +1530,20 @@ class StaffAttendance(Base):
     )
 
 
+class StaffAttendanceAdjustment(Base):
+    __tablename__ = "staff_attendance_adjustments"
+
+    id = Column(Integer, primary_key=True, index=True)
+    attendance_id = Column(Integer, ForeignKey("staff_attendance.id", ondelete="CASCADE"), nullable=False, index=True)
+    staff_id = Column(Integer, ForeignKey("staff.id"), nullable=False, index=True)
+    branch_id = Column(Integer, ForeignKey("branches.id"), nullable=False, index=True)
+    attendance_date = Column(Date, nullable=False, index=True)
+    old_status = Column(String, nullable=False)
+    new_status = Column(String, nullable=False)
+    changed_by = Column(Integer, ForeignKey("users.id"), nullable=False)
+    changed_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False, index=True)
+
+
 # ============================================================
 # BRANCH ADMIN ATTENDANCE
 # ============================================================
@@ -1575,6 +1589,29 @@ class BranchAdminAttendance(Base):
             "branch_admin_id",
             "date",
             name="unique_branch_admin_attendance_per_day"
+        ),
+    )
+
+
+# ============================================================
+# BRANCH HOLIDAYS
+# ============================================================
+
+class BranchHoliday(Base):
+    __tablename__ = "branch_holidays"
+
+    id = Column(Integer, primary_key=True, index=True)
+    branch_id = Column(Integer, ForeignKey("branches.id"), nullable=False, index=True)
+    date = Column(Date, nullable=False, index=True)
+    reason = Column(String, nullable=False)
+    marked_by = Column(Integer, ForeignKey("users.id"), nullable=False)
+    marked_at = Column(DateTime(timezone=True), server_default=func.now())
+
+    __table_args__ = (
+        UniqueConstraint(
+            "branch_id",
+            "date",
+            name="unique_branch_holiday_per_day",
         ),
     )
 

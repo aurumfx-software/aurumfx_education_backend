@@ -8,7 +8,9 @@ from database import SessionLocal
 from database_models import (
     User,
     Staff,
-    StaffAttendance
+    StaffAttendance,
+    StaffAttendanceAdjustment,
+    BranchHoliday,
 )
 
 from routers.auth import get_current_user
@@ -17,6 +19,7 @@ from schemas.staff_attendance import (
     StaffAttendanceCreate,
     StaffAttendanceUpdate
 )
+from utils.attendance_history import holiday_summary, resolve_period
 
 
 router = APIRouter(
@@ -188,6 +191,9 @@ def mark_staff_attendance(
 )
 def get_staff_attendance(
     attendance_date: date | None = Query(default=None),
+    date_from: date | None = Query(default=None),
+    date_to: date | None = Query(default=None),
+    month: str | None = Query(default=None),
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user)
 ):
@@ -203,6 +209,10 @@ def get_staff_attendance(
             status_code=400,
             detail="Branch admin is not assigned to a branch"
         )
+
+    period_from, period_to = resolve_period(date_from, date_to, month)
+    if attendance_date and (period_from or period_to):
+        raise HTTPException(status_code=400, detail="Use attendance_date or a date range, not both")
 
     # =====================================================
     # GET ONLY THIS BRANCH ATTENDANCE
@@ -228,6 +238,27 @@ def get_staff_attendance(
         query = query.filter(
             StaffAttendance.date == attendance_date
         )
+    if period_from:
+        query = query.filter(StaffAttendance.date >= period_from)
+    if period_to:
+        query = query.filter(StaffAttendance.date <= period_to)
+
+    if period_from and period_to:
+        holidays = (
+            db.query(BranchHoliday)
+            .filter(
+                BranchHoliday.branch_id == current_user.branch_id,
+                BranchHoliday.date >= period_from,
+                BranchHoliday.date <= period_to,
+            )
+            .all()
+        )
+        total_holidays, total_working_days, holiday_details = holiday_summary(
+            period_from, period_to, holidays
+        )
+    else:
+        total_holidays = total_working_days = None
+        holiday_details = []
 
     # =====================================================
     # GET RECORDS
@@ -290,6 +321,11 @@ def get_staff_attendance(
         "half_day": half_day_count,
 
         "leave": leave_count,
+        "date_from": period_from,
+        "date_to": period_to,
+        "total_holidays": total_holidays,
+        "total_working_days": total_working_days,
+        "holidays": holiday_details,
 
         "attendance": [
             {
@@ -326,6 +362,9 @@ def get_staff_attendance(
 )
 def get_my_attendance(
     attendance_date: date | None = Query(default=None),
+    date_from: date | None = Query(default=None),
+    date_to: date | None = Query(default=None),
+    month: str | None = Query(default=None),
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user)
 ):
@@ -335,6 +374,10 @@ def get_my_attendance(
             status_code=403,
             detail="Staff access required"
         )
+
+    period_from, period_to = resolve_period(date_from, date_to, month)
+    if attendance_date and (period_from or period_to):
+        raise HTTPException(status_code=400, detail="Use attendance_date or a date range, not both")
 
     # =====================================================
     # FIND LOGGED-IN STAFF
@@ -371,6 +414,10 @@ def get_my_attendance(
         query = query.filter(
             StaffAttendance.date == attendance_date
         )
+    if period_from:
+        query = query.filter(StaffAttendance.date >= period_from)
+    if period_to:
+        query = query.filter(StaffAttendance.date <= period_to)
 
     records = (
         query
@@ -380,8 +427,37 @@ def get_my_attendance(
         .all()
     )
 
+    if period_from and period_to:
+        holidays = (
+            db.query(BranchHoliday)
+            .filter(
+                BranchHoliday.branch_id == staff.branch_id,
+                BranchHoliday.date >= period_from,
+                BranchHoliday.date <= period_to,
+            )
+            .all()
+        )
+        total_holidays, total_working_days, holiday_details = holiday_summary(
+            period_from, period_to, holidays
+        )
+    else:
+        total_holidays = total_working_days = None
+        holiday_details = []
+
+    present_count = sum(record.status.lower() == "present" for record in records)
+    absent_count = sum(record.status.lower() == "absent" for record in records)
+    half_day_count = sum(record.status.lower() == "half day" for record in records)
+
     return {
         "total": len(records),
+        "present": present_count,
+        "absent": absent_count,
+        "half_day": half_day_count,
+        "date_from": period_from,
+        "date_to": period_to,
+        "total_holidays": total_holidays,
+        "total_working_days": total_working_days,
+        "holidays": holiday_details,
 
         "attendance": [
             {
@@ -483,6 +559,20 @@ def update_staff_attendance(
     # =====================================================
     # UPDATE ATTENDANCE
     # =====================================================
+
+    previous_status = attendance.status
+    if previous_status != status:
+        db.add(
+            StaffAttendanceAdjustment(
+                attendance_id=attendance.id,
+                staff_id=attendance.staff_id,
+                branch_id=attendance.branch_id,
+                attendance_date=attendance.date,
+                old_status=previous_status,
+                new_status=status,
+                changed_by=current_user.id,
+            )
+        )
 
     attendance.status = status
 

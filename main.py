@@ -41,6 +41,7 @@ from routers import (
     super_admin_attendance,
     staff_attendance,
     branch_admin_attendance,
+    branch_holidays,
     messages,
     admissions,
     student_assignments,
@@ -467,6 +468,7 @@ app.include_router(super_admin_receipts.router)
 app.include_router(super_admin_attendance.router)
 app.include_router(staff_attendance.router)
 app.include_router(branch_admin_attendance.router)
+app.include_router(branch_holidays.router)
 app.include_router(messages.router)
 app.include_router(student_staff_messages.router)
 app.include_router(staff_super_admin_messages.router)

@@ -7,7 +7,8 @@ from database import SessionLocal
 
 from database_models import (
     User,
-    BranchAdminAttendance
+    BranchAdminAttendance,
+    BranchHoliday,
 )
 
 from routers.auth import get_current_user
@@ -16,6 +17,7 @@ from schemas.branch_admin_attendance import (
     BranchAdminAttendanceCreate,
     BranchAdminAttendanceUpdate
 )
+from utils.attendance_history import holiday_summary, resolve_period
 
 
 router = APIRouter(
@@ -146,6 +148,9 @@ def mark_own_attendance(
 )
 def get_my_attendance(
     attendance_date: date | None = Query(default=None),
+    date_from: date | None = Query(default=None),
+    date_to: date | None = Query(default=None),
+    month: str | None = Query(default=None),
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user)
 ):
@@ -155,6 +160,10 @@ def get_my_attendance(
             status_code=403,
             detail="Branch admin access required"
         )
+
+    period_from, period_to = resolve_period(date_from, date_to, month)
+    if attendance_date and (period_from or period_to):
+        raise HTTPException(status_code=400, detail="Use attendance_date or a date range, not both")
 
     query = (
         db.query(BranchAdminAttendance)
@@ -169,6 +178,10 @@ def get_my_attendance(
         query = query.filter(
             BranchAdminAttendance.date == attendance_date
         )
+    if period_from:
+        query = query.filter(BranchAdminAttendance.date >= period_from)
+    if period_to:
+        query = query.filter(BranchAdminAttendance.date <= period_to)
 
     records = (
         query
@@ -206,6 +219,23 @@ def get_my_attendance(
         if attendance.status.lower() == "leave"
     )
 
+    if period_from and period_to:
+        holidays = (
+            db.query(BranchHoliday)
+            .filter(
+                BranchHoliday.branch_id == current_user.branch_id,
+                BranchHoliday.date >= period_from,
+                BranchHoliday.date <= period_to,
+            )
+            .all()
+        )
+        total_holidays, total_working_days, holiday_details = holiday_summary(
+            period_from, period_to, holidays
+        )
+    else:
+        total_holidays = total_working_days = None
+        holiday_details = []
+
     return {
         "date": (
             attendance_date.isoformat()
@@ -222,6 +252,11 @@ def get_my_attendance(
         "half_day": half_day_count,
 
         "leave": leave_count,
+        "date_from": period_from,
+        "date_to": period_to,
+        "total_holidays": total_holidays,
+        "total_working_days": total_working_days,
+        "holidays": holiday_details,
 
         "attendance": [
             {
