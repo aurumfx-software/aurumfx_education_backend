@@ -8,6 +8,7 @@ from database import SessionLocal
 from database_models import BranchHoliday, User
 from routers.auth import get_current_user
 from schemas.branch_holiday import BranchHolidayCreate
+from utils.attendance_history import holiday_summary, resolve_period
 
 
 router = APIRouter(prefix="/holidays", tags=["Branch Holidays"])
@@ -82,18 +83,7 @@ def get_branch_holidays(
     else:
         raise HTTPException(status_code=403, detail="Branch admin or super admin access required")
 
-    if month and (date_from or date_to):
-        raise HTTPException(status_code=400, detail="Use month or date_from/date_to, not both")
-    if month:
-        try:
-            year, month_number = (int(value) for value in month.split("-", 1))
-            date_from = date(year, month_number, 1)
-            date_to = date(year, month_number + 1, 1) if month_number < 12 else date(year + 1, 1, 1)
-            date_to = date.fromordinal(date_to.toordinal() - 1)
-        except (ValueError, TypeError):
-            raise HTTPException(status_code=400, detail="month must use YYYY-MM format")
-    if date_from and date_to and date_from > date_to:
-        raise HTTPException(status_code=400, detail="date_from must not be after date_to")
+    date_from, date_to = resolve_period(date_from, date_to, month)
 
     query = db.query(BranchHoliday).filter(BranchHoliday.branch_id == requested_branch_id)
     if date_from:
@@ -101,8 +91,37 @@ def get_branch_holidays(
     if date_to:
         query = query.filter(BranchHoliday.date <= date_to)
     holidays = query.order_by(BranchHoliday.date.asc()).all()
+    if date_from and date_to:
+        _, _, summary = holiday_summary(date_from, date_to, holidays)
+        holidays_by_date = {holiday.date: holiday for holiday in holidays}
+        holiday_details = []
+        for detail in summary:
+            holiday = holidays_by_date.get(detail["date"])
+            if holiday:
+                holiday_details.append({
+                    **serialize_holiday(holiday),
+                    "type": "special",
+                })
+            else:
+                holiday_details.append({
+                    "id": None,
+                    "branch_id": requested_branch_id,
+                    "date": detail["date"],
+                    "reason": "Sunday",
+                    "type": "sunday",
+                    "marked_by": None,
+                    "marked_at": None,
+                })
+    else:
+        holiday_details = [
+            {
+                **serialize_holiday(holiday),
+                "type": "special",
+            }
+            for holiday in holidays
+        ]
     return {
         "branch_id": requested_branch_id,
-        "total": len(holidays),
-        "holidays": [serialize_holiday(holiday) for holiday in holidays],
+        "total": len(holiday_details),
+        "holidays": holiday_details,
     }

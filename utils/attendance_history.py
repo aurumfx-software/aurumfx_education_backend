@@ -35,19 +35,19 @@ def holiday_summary(date_from, date_to, holidays):
     current = date_from
     holiday_details = []
     while current <= date_to:
-        if current.weekday() == 6:
-            holiday_details.append({
-                "date": current,
-                "reason": "Sunday",
-                "type": "sunday",
-            })
-        elif current in holiday_by_date:
+        if current in holiday_by_date:
             holiday = holiday_by_date[current]
             holiday_details.append({
                 "date": current,
                 "reason": holiday.reason,
                 "type": "special",
                 "id": holiday.id,
+            })
+        elif current.weekday() == 6:
+            holiday_details.append({
+                "date": current,
+                "reason": "Sunday",
+                "type": "sunday",
             })
         current += timedelta(days=1)
 

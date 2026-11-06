@@ -1,4 +1,5 @@
-from datetime import date, datetime
+from datetime import date, datetime, timezone
+from zoneinfo import ZoneInfo
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.orm import Session
@@ -54,8 +55,24 @@ def attendance_counts(records):
     }
 
 
+ATTENDANCE_DISPLAY_TIMEZONE = ZoneInfo("Asia/Kolkata")
+
+
+def localize_timestamp(value):
+    if not value:
+        return None
+    if value.tzinfo is None:
+        value = value.replace(tzinfo=timezone.utc)
+    return value.astimezone(ATTENDANCE_DISPLAY_TIMEZONE)
+
+
 def display_timestamp(value):
-    return value.strftime("%d %b %Y, %I:%M %p") if value else None
+    localized_value = localize_timestamp(value)
+    return (
+        localized_value.strftime("%d %b %Y, %I:%M %p")
+        if localized_value
+        else None
+    )
 
 
 @router.get("/branches")
@@ -96,8 +113,12 @@ def get_staff_attendance_adjustments(
         raise HTTPException(status_code=400, detail="changed_from must not be after changed_to")
 
     query = (
-        db.query(StaffAttendanceAdjustment, Staff)
+        db.query(StaffAttendanceAdjustment, Staff, StaffAttendance)
         .join(Staff, Staff.id == StaffAttendanceAdjustment.staff_id)
+        .join(
+            StaffAttendance,
+            StaffAttendance.id == StaffAttendanceAdjustment.attendance_id,
+        )
     )
     if branch_id is not None:
         query = query.filter(StaffAttendanceAdjustment.branch_id == branch_id)
@@ -126,10 +147,16 @@ def get_staff_attendance_adjustments(
                 "old_status": adjustment.old_status,
                 "new_status": adjustment.new_status,
                 "changed_by": adjustment.changed_by,
-                "changed_at": adjustment.changed_at,
+                "first_status": adjustment.old_status,
+                "first_status_marked_at": localize_timestamp(attendance.marked_at),
+                "first_status_marked_at_display": display_timestamp(attendance.marked_at),
+                "changed_status": adjustment.new_status,
+                "changed_status_marked_at": localize_timestamp(adjustment.changed_at),
+                "changed_status_marked_at_display": display_timestamp(adjustment.changed_at),
+                "changed_at": localize_timestamp(adjustment.changed_at),
                 "changed_at_display": display_timestamp(adjustment.changed_at),
             }
-            for adjustment, staff in records
+            for adjustment, staff, attendance in records
         ],
     }
 

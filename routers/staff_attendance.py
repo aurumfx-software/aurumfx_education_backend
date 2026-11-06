@@ -1,4 +1,4 @@
-from datetime import date
+from datetime import date, datetime, timezone
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.orm import Session
@@ -562,6 +562,7 @@ def update_staff_attendance(
 
     previous_status = attendance.status
     if previous_status != status:
+        changed_at = datetime.now(timezone.utc)
         db.add(
             StaffAttendanceAdjustment(
                 attendance_id=attendance.id,
@@ -571,6 +572,7 @@ def update_staff_attendance(
                 old_status=previous_status,
                 new_status=status,
                 changed_by=current_user.id,
+                changed_at=changed_at,
             )
         )
 
