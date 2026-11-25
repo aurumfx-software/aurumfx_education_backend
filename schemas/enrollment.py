@@ -12,6 +12,8 @@ class EnrollmentInstallmentPaymentDetail(BaseModel):
     approval_status: str
     payment_date: date
     payment_reference: str | None = None
+    razorpay_order_id: str | None = None
+    razorpay_payment_id: str | None = None
     upi_transaction_id: str | None = None
 
 
@@ -97,6 +99,8 @@ class EnrollmentPaymentDetail(BaseModel):
     reviewed_at: datetime | None = None
     rejection_reason: str | None = None
     payment_reference: str | None = None
+    razorpay_order_id: str | None = None
+    razorpay_payment_id: str | None = None
     upi_transaction_id: str | None = None
 
     class Config:

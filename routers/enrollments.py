@@ -47,6 +47,77 @@ def get_db():
         db.close()
 
 
+def razorpay_order_ids_by_payment_reference(
+    db: Session,
+    payment_rows: list[AdmissionPayment],
+):
+    payment_references = {
+        (payment.enrollment_id, payment.payment_reference)
+        for payment in payment_rows
+        if payment.payment_method == "razorpay" and payment.payment_reference
+    }
+    if not payment_references:
+        return {}
+
+    enrollment_ids = {enrollment_id for enrollment_id, _ in payment_references}
+    razorpay_payment_ids = {
+        payment_reference for _, payment_reference in payment_references
+    }
+    orders = (
+        db.query(RazorpayPaymentOrder)
+        .filter(
+            RazorpayPaymentOrder.enrollment_id.in_(enrollment_ids),
+            RazorpayPaymentOrder.razorpay_payment_id.in_(razorpay_payment_ids),
+        )
+        .all()
+    )
+    return {
+        (order.enrollment_id, order.razorpay_payment_id): order.razorpay_order_id
+        for order in orders
+    }
+
+
+def serialize_enrollment_payment_history(
+    db: Session,
+    enrollment: Enrollment,
+    payment_rows: list[AdmissionPayment] | None = None,
+):
+    if payment_rows is None:
+        payment_rows = enrollment_payment_history(db, enrollment)
+    order_ids = razorpay_order_ids_by_payment_reference(db, payment_rows)
+    return [
+        {
+            "id": payment.id,
+            "payment_id": payment.id,
+            "enrollment_id": payment.enrollment_id,
+            "installment_id": payment.installment_id,
+            "installment_number": payment.installment_number,
+            "amount": payment.amount,
+            "cash_amount": payment.cash_amount,
+            "upi_amount": payment.upi_amount,
+            "payment_method": payment.payment_method,
+            "payment_date": payment.payment_date,
+            "status": payment.status,
+            **installment_payment_status_fields(payment),
+            "credited_to_balance": payment.credited_to_balance,
+            "reviewed_by_user_id": payment.reviewed_by_user_id,
+            "reviewed_at": payment.reviewed_at,
+            "rejection_reason": payment.rejection_reason,
+            "payment_reference": payment.payment_reference,
+            "razorpay_payment_id": (
+                payment.payment_reference
+                if payment.payment_method == "razorpay"
+                else None
+            ),
+            "razorpay_order_id": order_ids.get(
+                (payment.enrollment_id, payment.payment_reference)
+            ),
+            "upi_transaction_id": payment.upi_transaction_id,
+        }
+        for payment in payment_rows
+    ]
+
+
 def enrollment_payment_summary(db: Session, enrollment: Enrollment):
     installments = (
         db.query(EnrollmentInstallment)
@@ -67,6 +138,7 @@ def enrollment_payment_summary(db: Session, enrollment: Enrollment):
         )
         .all()
     )
+    order_ids = razorpay_order_ids_by_payment_reference(db, installment_payments)
     payments_by_installment = {}
     for payment in installment_payments:
         payments_by_installment.setdefault(payment.installment_id, []).append(
@@ -82,6 +154,14 @@ def enrollment_payment_summary(db: Session, enrollment: Enrollment):
                 ],
                 "payment_date": payment.payment_date,
                 "payment_reference": payment.payment_reference,
+                "razorpay_payment_id": (
+                    payment.payment_reference
+                    if payment.payment_method == "razorpay"
+                    else None
+                ),
+                "razorpay_order_id": order_ids.get(
+                    (payment.enrollment_id, payment.payment_reference)
+                ),
                 "upi_transaction_id": payment.upi_transaction_id,
             }
         )
@@ -307,6 +387,7 @@ def build_installment_student_record(
 ):
     payment_summary = enrollment_payment_summary(db, enrollment)
     payments = enrollment_payment_history(db, enrollment)
+    payment_records = serialize_enrollment_payment_history(db, enrollment, payments)
     return {
         "enrollment_id": enrollment.id,
         "user_id": student.id,
@@ -331,21 +412,9 @@ def build_installment_student_record(
         "super_admin_approval_status": enrollment.super_admin_approval_status,
         "payments": [
             {
-                "payment_id": payment.id,
-                "installment_number": payment.installment_number,
-                "amount": payment.amount,
-                "cash_amount": payment.cash_amount,
-                "upi_amount": payment.upi_amount,
-                "payment_method": payment.payment_method,
-                "payment_date": payment.payment_date,
-                "status": payment.status,
-                "upi_transaction_id": payment.upi_transaction_id,
-                **installment_payment_status_fields(payment),
-                "credited_to_balance": payment.credited_to_balance,
-                "reviewed_at": payment.reviewed_at,
-                "rejection_reason": payment.rejection_reason,
+                **payment,
             }
-            for payment in payments
+            for payment in payment_records
         ],
         "created_at": enrollment.created_at,
     }
@@ -381,6 +450,7 @@ def build_installment_payment_record(
     student: User,
     course: Course,
     branch_name: str,
+    razorpay_order_id: str | None = None,
 ):
     return {
         "payment_id": payment.id,
@@ -400,6 +470,12 @@ def build_installment_payment_record(
         "payment_reference": payment.payment_reference,
         "payment_date": payment.payment_date,
         "status": payment.status,
+        "razorpay_payment_id": (
+            payment.payment_reference
+            if payment.payment_method == "razorpay"
+            else None
+        ),
+        "razorpay_order_id": razorpay_order_id,
         "upi_transaction_id": payment.upi_transaction_id,
         **installment_payment_status_fields(payment),
         "credited_to_balance": payment.credited_to_balance,
@@ -616,7 +692,7 @@ def update_enrollment_for_branch_admin(
         "razorpay_payment_id": enrollment.razorpay_payment_id,
         "created_at": enrollment.created_at,
         **enrollment_payment_summary(db, enrollment),
-        "payments": enrollment_payment_history(db, enrollment),
+        "payments": serialize_enrollment_payment_history(db, enrollment),
     }
 
 
@@ -659,6 +735,15 @@ def get_student_installment_details(
         .all()
     )
     payment_rows = enrollment_payment_history(db, enrollment)
+    payment_records = serialize_enrollment_payment_history(
+        db, enrollment, payment_rows
+    )
+    payment_records_by_installment = {}
+    for payment in payment_records:
+        if payment["installment_id"] is not None:
+            payment_records_by_installment.setdefault(
+                payment["installment_id"], []
+            ).append(payment)
     pending_amount_by_installment = {}
     for payment in payment_rows:
         if payment.status == "pending_review" and payment.installment_id:
@@ -690,6 +775,15 @@ def get_student_installment_details(
             "status": installment.status,
             "cash_amount": installment.cash_amount,
             "upi_amount": installment.upi_amount,
+            "payment_methods": list(
+                dict.fromkeys(
+                    payment["payment_method"]
+                    for payment in payment_records_by_installment.get(
+                        installment.id, []
+                    )
+                )
+            ),
+            "payments": payment_records_by_installment.get(installment.id, []),
         }
         for installment in installments
     ]
@@ -792,26 +886,7 @@ def get_student_installment_details(
             else None
         ),
         "installments": installment_details,
-        "payments": [
-            {
-                "payment_id": payment.id,
-                "installment_id": payment.installment_id,
-                "installment_number": payment.installment_number,
-                "amount": payment.amount,
-                "cash_amount": payment.cash_amount,
-                "upi_amount": payment.upi_amount,
-                "payment_method": payment.payment_method,
-                "payment_date": payment.payment_date,
-                "status": payment.status,
-                "upi_transaction_id": payment.upi_transaction_id,
-                **installment_payment_status_fields(payment),
-                "credited_to_balance": payment.credited_to_balance,
-                "payment_reference": payment.payment_reference,
-                "reviewed_at": payment.reviewed_at,
-                "rejection_reason": payment.rejection_reason,
-            }
-            for payment in payment_rows
-        ],
+        "payments": payment_records,
     }
 
 
@@ -916,28 +991,7 @@ def get_my_enrollments(
             "total_fee": enrollment.total_fee,
             **enrollment_payment_summary(db, enrollment),
             **enrollment_payment_review_summary(db, enrollment),
-            "payments": [
-                {
-                    "id": payment.id,
-                    "enrollment_id": payment.enrollment_id,
-                    "installment_id": payment.installment_id,
-                    "installment_number": payment.installment_number,
-                    "amount": payment.amount,
-                    "cash_amount": payment.cash_amount,
-                    "upi_amount": payment.upi_amount,
-                    "payment_method": payment.payment_method,
-                    "payment_date": payment.payment_date,
-                    "status": payment.status,
-                    **installment_payment_status_fields(payment),
-                    "credited_to_balance": payment.credited_to_balance,
-                    "reviewed_by_user_id": payment.reviewed_by_user_id,
-                    "reviewed_at": payment.reviewed_at,
-                    "rejection_reason": payment.rejection_reason,
-                    "payment_reference": payment.payment_reference,
-                    "upi_transaction_id": payment.upi_transaction_id,
-                }
-                for payment in enrollment_payment_history(db, enrollment)
-            ],
+            "payments": serialize_enrollment_payment_history(db, enrollment),
 
             # Payment status
             "status": enrollment.status,
@@ -1102,7 +1156,7 @@ def get_branch_admin_enrollments(
 
             "total_fee": enrollment.total_fee,
             **enrollment_payment_summary(db, enrollment),
-            "payments": enrollment_payment_history(db, enrollment),
+            "payments": serialize_enrollment_payment_history(db, enrollment),
 
             # Payment status
             "status": enrollment.status,
@@ -1211,7 +1265,7 @@ def get_branch_admin_course_enrollments(
 
             "total_fee": enrollment.total_fee,
             **enrollment_payment_summary(db, enrollment),
-            "payments": enrollment_payment_history(db, enrollment),
+            "payments": serialize_enrollment_payment_history(db, enrollment),
 
             # Payment status
             "status": enrollment.status,
@@ -1754,10 +1808,6 @@ def serialize_installment_payment_groups(db: Session, rows):
     grouped_payments = []
     for group in groups.values():
         payment, enrollment, student, course, branch_name = group[0]
-        allocations = [
-            build_installment_payment_record(*row)
-            for row in group
-        ]
         payment_order = (
             db.query(RazorpayPaymentOrder)
             .filter(
@@ -1767,6 +1817,15 @@ def serialize_installment_payment_groups(db: Session, rows):
             )
             .first()
         )
+        allocations = [
+            build_installment_payment_record(
+                *row,
+                razorpay_order_id=(
+                    payment_order.razorpay_order_id if payment_order else None
+                ),
+            )
+            for row in group
+        ]
         installment_numbers = sorted(
             {row[0].installment_number for row in group}
         )
@@ -2396,9 +2455,17 @@ def get_branch_admin_installment_payment_history(
             detail="Status must be received or rejected",
         )
     rows = get_installment_payment_rows(db, branch_id, status)
+    order_ids = razorpay_order_ids_by_payment_reference(
+        db, [payment for payment, _, _, _, _ in rows]
+    )
     payments = [
         build_installment_payment_record(
-            payment, enrollment, student, course, branch_name
+            payment,
+            enrollment,
+            student,
+            course,
+            branch_name,
+            order_ids.get((enrollment.id, payment.payment_reference)),
         )
         for payment, enrollment, student, course, branch_name in rows
         if payment.reviewed_by_user_id is not None
@@ -2457,9 +2524,17 @@ def get_super_admin_branch_admin_installment_history(
         get_installment_payment_rows(db, branch_id, "received")
         + get_installment_payment_rows(db, branch_id, "rejected")
     )
+    order_ids = razorpay_order_ids_by_payment_reference(
+        db, [payment for payment, _, _, _, _ in rows]
+    )
     payments = [
         build_installment_payment_record(
-            payment, enrollment, student, course, branch_name
+            payment,
+            enrollment,
+            student,
+            course,
+            branch_name,
+            order_ids.get((enrollment.id, payment.payment_reference)),
         )
         for payment, enrollment, student, course, branch_name in rows
         if payment.reviewed_by_user_id is not None
@@ -2548,8 +2623,10 @@ def approve_purchase(
         "super_admin_approval_status": enrollment.super_admin_approval_status,
         "super_admin_rejection_reason": enrollment.super_admin_rejection_reason,
         "super_admin_rejected_at": enrollment.super_admin_rejected_at,
-
-        "razorpay_payment_id": enrollment.razorpay_payment_id
+        **enrollment_payment_summary(db, enrollment),
+        "payments": serialize_enrollment_payment_history(db, enrollment),
+        "razorpay_order_id": enrollment.razorpay_order_id,
+        "razorpay_payment_id": enrollment.razorpay_payment_id,
     }
 
 
@@ -2579,7 +2656,7 @@ def super_admin_purchase_record(
         "total_fee": enrollment.total_fee,
         "amount": enrollment.total_fee,
         **enrollment_payment_summary(db, enrollment),
-        "payments": enrollment_payment_history(db, enrollment),
+        "payments": serialize_enrollment_payment_history(db, enrollment),
         "payment_status": enrollment.status,
         "course_status": enrollment.course_status,
         "branch_approval_status": enrollment.branch_approval_status,

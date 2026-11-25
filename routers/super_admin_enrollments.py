@@ -12,8 +12,8 @@ from database_models import (
 )
 from routers.auth import get_current_super_admin
 from routers.enrollments import (
-    enrollment_payment_history,
     enrollment_payment_summary,
+    serialize_enrollment_payment_history,
 )
 from schemas.enrollment import AdminEnrollmentResponse, BranchAdminEnrollmentUpdate
 from schemas.super_admin_enrollment import (
@@ -68,7 +68,7 @@ def build_enrollment_response(
         "course_duration": course.duration,
         "total_fee": enrollment.total_fee,
         **enrollment_payment_summary(db, enrollment),
-        "payments": enrollment_payment_history(db, enrollment),
+        "payments": serialize_enrollment_payment_history(db, enrollment),
         "status": enrollment.status,
         "course_status": enrollment.course_status,
         "branch_approval_status": enrollment.branch_approval_status,

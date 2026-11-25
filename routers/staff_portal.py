@@ -24,6 +24,7 @@ from routers.enrollments import (
     enrollment_payment_history,
     enrollment_payment_review_summary,
     enrollment_payment_summary,
+    serialize_enrollment_payment_history,
 )
 from schemas.assignment import AssignmentGradeUpdate
 from schemas.staff_task import StaffTaskCreate
@@ -412,6 +413,7 @@ def get_my_course_students(
         if enrollment.user_id in seen_student_ids:
             continue
         seen_student_ids.add(enrollment.user_id)
+        payment_rows = enrollment_payment_history(db, enrollment)
         students.append(
             {
                 "student_id": user.id,
@@ -434,27 +436,20 @@ def get_my_course_students(
                     "enrolled_at": enrollment.created_at,
                     "total_fee": enrollment.total_fee,
                     **enrollment_payment_summary(db, enrollment),
-                    **enrollment_payment_review_summary(db, enrollment),
+                    **enrollment_payment_review_summary(
+                        db, enrollment, payment_rows
+                    ),
                     "payment_status": enrollment.status,
                     "course_status": enrollment.course_status,
                     "branch_approval_status": enrollment.branch_approval_status,
                     "super_admin_approval_status": (
                         enrollment.super_admin_approval_status
                     ),
-                    "payments": [
-                        {
-                            "payment_id": payment.id,
-                            "installment_id": payment.installment_id,
-                            "installment_number": payment.installment_number,
-                            "amount": payment.amount,
-                            "payment_method": payment.payment_method,
-                            "payment_date": payment.payment_date,
-                            "status": payment.status,
-                            "payment_reference": payment.payment_reference,
-                            "credited_to_balance": payment.credited_to_balance,
-                        }
-                        for payment in enrollment_payment_history(db, enrollment)
-                    ],
+                    "razorpay_order_id": enrollment.razorpay_order_id,
+                    "razorpay_payment_id": enrollment.razorpay_payment_id,
+                    "payments": serialize_enrollment_payment_history(
+                        db, enrollment, payment_rows
+                    ),
                 },
             }
         )

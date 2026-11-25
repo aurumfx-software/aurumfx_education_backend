@@ -15,6 +15,10 @@ from database_models import (
     User,
 )
 from routers.auth import get_current_super_admin
+from routers.enrollments import (
+    installment_payment_status_fields,
+    razorpay_order_ids_by_payment_reference,
+)
 
 
 router = APIRouter(
@@ -335,6 +339,7 @@ def get_all_students(
         enrollment_ids = [enrollment.id for enrollment, _, _ in enrollment_rows]
 
         installments_by_enrollment = {enrollment_id: [] for enrollment_id in enrollment_ids}
+        installments_by_id = {}
         if enrollment_ids:
             installments = (
                 db.query(EnrollmentInstallment)
@@ -346,23 +351,27 @@ def get_all_students(
                 .all()
             )
             for installment in installments:
+                installment_record = {
+                    "id": installment.id,
+                    "installment_number": installment.installment_number,
+                    "amount": installment.amount,
+                    "paid_amount": installment.paid_amount,
+                    "remaining_amount": round(
+                        installment.amount - installment.paid_amount,
+                        2,
+                    ),
+                    "due_date": installment.due_date,
+                    "status": installment.status,
+                    "paid_date": installment.paid_date,
+                    "cash_amount": installment.cash_amount,
+                    "upi_amount": installment.upi_amount,
+                    "payment_methods": [],
+                    "payments": [],
+                }
                 installments_by_enrollment[installment.enrollment_id].append(
-                    {
-                        "id": installment.id,
-                        "installment_number": installment.installment_number,
-                        "amount": installment.amount,
-                        "paid_amount": installment.paid_amount,
-                        "remaining_amount": round(
-                            installment.amount - installment.paid_amount,
-                            2,
-                        ),
-                        "due_date": installment.due_date,
-                        "status": installment.status,
-                        "paid_date": installment.paid_date,
-                        "cash_amount": installment.cash_amount,
-                        "upi_amount": installment.upi_amount,
-                    }
+                    installment_record
                 )
+                installments_by_id[installment.id] = installment_record
 
         payments_by_enrollment = {enrollment_id: [] for enrollment_id in enrollment_ids}
         if enrollment_ids:
@@ -376,21 +385,47 @@ def get_all_students(
                 )
                 .all()
             )
+            order_ids = razorpay_order_ids_by_payment_reference(db, payments)
             for payment in payments:
+                payment_record = {
+                    "id": payment.id,
+                    "payment_id": payment.id,
+                    "installment_id": payment.installment_id,
+                    "installment_number": payment.installment_number,
+                    "amount": payment.amount,
+                    "cash_amount": payment.cash_amount,
+                    "upi_amount": payment.upi_amount,
+                    "payment_method": payment.payment_method,
+                    "payment_date": payment.payment_date,
+                    "status": payment.status,
+                    "payment_status": payment.status,
+                    "approval_status": installment_payment_status_fields(payment)[
+                        "approval_status"
+                    ],
+                    "payment_reference": payment.payment_reference,
+                    "razorpay_payment_id": (
+                        payment.payment_reference
+                        if payment.payment_method == "razorpay"
+                        else None
+                    ),
+                    "razorpay_order_id": order_ids.get(
+                        (payment.enrollment_id, payment.payment_reference)
+                    ),
+                    "credited_to_balance": payment.credited_to_balance,
+                    "reviewed_at": payment.reviewed_at,
+                    "rejection_reason": payment.rejection_reason,
+                    "upi_transaction_id": payment.upi_transaction_id,
+                }
                 payments_by_enrollment[payment.enrollment_id].append(
-                    {
-                        "id": payment.id,
-                        "installment_id": payment.installment_id,
-                        "installment_number": payment.installment_number,
-                        "amount": payment.amount,
-                        "cash_amount": payment.cash_amount,
-                        "upi_amount": payment.upi_amount,
-                        "payment_method": payment.payment_method,
-                        "payment_date": payment.payment_date,
-                        "status": payment.status,
-                        "upi_transaction_id": payment.upi_transaction_id,
-                    }
+                    payment_record
                 )
+                installment_record = installments_by_id.get(payment.installment_id)
+                if installment_record:
+                    installment_record["payments"].append(payment_record)
+                    if payment.payment_method not in installment_record["payment_methods"]:
+                        installment_record["payment_methods"].append(
+                            payment.payment_method
+                        )
 
         for enrollment, course, branch in enrollment_rows:
             enrollments_by_student[enrollment.user_id].append(
