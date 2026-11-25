@@ -6,16 +6,19 @@ from sqlalchemy.orm import Session
 from database_models import GSTSettings
 
 
-def get_gst_percentages(db: Session) -> tuple[float, float]:
+def get_gst_percentages(
+    db: Session,
+    missing_settings_message: str = (
+        "GST settings are not configured. "
+        "Please ask the superadmin to configure CGST and SGST "
+        "before adding or updating courses."
+    ),
+) -> tuple[float, float]:
     settings = db.query(GSTSettings).filter(GSTSettings.id == 1).first()
     if not settings:
         raise HTTPException(
             status_code=400,
-            detail=(
-                "GST settings are not configured. "
-                "Please ask the superadmin to configure CGST and SGST "
-                "before adding or updating courses."
-            ),
+            detail=missing_settings_message,
         )
     return settings.cgst_percent, settings.sgst_percent
 
@@ -44,5 +47,14 @@ def calculate_course_amounts(
     }
 
 
-def get_course_amounts(db: Session, base_price: float) -> dict[str, float]:
+def get_course_amounts(
+    db: Session,
+    base_price: float,
+    *,
+    missing_settings_message: str,
+) -> dict[str, float]:
+    get_gst_percentages(
+        db,
+        missing_settings_message=missing_settings_message,
+    )
     return calculate_course_amounts(base_price, 0, 0)

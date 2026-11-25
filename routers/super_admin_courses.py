@@ -68,8 +68,15 @@ def parse_course_data(
     installment_schedule: str,
     installment_count: int,
     installment_terms: str,
+    missing_settings_message: str = (
+        "Please set GST settings before adding or updating courses."
+    ),
 ):
-    course_amounts = get_course_amounts(db, price)
+    course_amounts = get_course_amounts(
+        db,
+        price,
+        missing_settings_message=missing_settings_message,
+    )
     if start_date > end_date:
         raise HTTPException(status_code=400, detail="Start date cannot be after end date")
 

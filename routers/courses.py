@@ -355,7 +355,13 @@ def add_course(
             detail="Course price must be greater than 0",
         )
 
-    course_amounts = get_course_amounts(db, price)
+    course_amounts = get_course_amounts(
+        db,
+        price,
+        missing_settings_message=(
+            "The superadmin must set GST settings before you can add a course."
+        ),
+    )
 
     # ========================================================
     # VALIDATE COURSE DATES
@@ -635,7 +641,13 @@ def update_course(
             detail="Course price must be greater than 0",
         )
 
-    course_amounts = get_course_amounts(db, price)
+    course_amounts = get_course_amounts(
+        db,
+        price,
+        missing_settings_message=(
+            "The superadmin must set GST settings before you can add or update a course."
+        ),
+    )
 
     # ========================================================
     # VALIDATE COURSE DATES
