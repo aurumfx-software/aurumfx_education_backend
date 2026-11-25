@@ -54,6 +54,37 @@ def enrollment_payment_summary(db: Session, enrollment: Enrollment):
         .order_by(EnrollmentInstallment.installment_number.asc())
         .all()
     )
+    installment_payments = (
+        db.query(AdmissionPayment)
+        .filter(
+            AdmissionPayment.enrollment_id == enrollment.id,
+            AdmissionPayment.installment_id.isnot(None),
+        )
+        .order_by(
+            AdmissionPayment.installment_number.asc(),
+            AdmissionPayment.payment_date.asc(),
+            AdmissionPayment.id.asc(),
+        )
+        .all()
+    )
+    payments_by_installment = {}
+    for payment in installment_payments:
+        payments_by_installment.setdefault(payment.installment_id, []).append(
+            {
+                "payment_id": payment.id,
+                "amount": payment.amount,
+                "cash_amount": payment.cash_amount,
+                "upi_amount": payment.upi_amount,
+                "payment_method": payment.payment_method,
+                "payment_status": payment.status,
+                "approval_status": installment_payment_status_fields(payment)[
+                    "approval_status"
+                ],
+                "payment_date": payment.payment_date,
+                "payment_reference": payment.payment_reference,
+                "upi_transaction_id": payment.upi_transaction_id,
+            }
+        )
     installment_count = len(installments)
     paid_installment_count = sum(
         installment.status == "paid" for installment in installments
@@ -152,6 +183,17 @@ def enrollment_payment_summary(db: Session, enrollment: Enrollment):
                 "due_date": installment.due_date,
                 "status": installment.status,
                 "paid_date": installment.paid_date,
+                "cash_amount": installment.cash_amount,
+                "upi_amount": installment.upi_amount,
+                "payment_methods": list(
+                    dict.fromkeys(
+                        payment["payment_method"]
+                        for payment in payments_by_installment.get(
+                            installment.id, []
+                        )
+                    )
+                ),
+                "payments": payments_by_installment.get(installment.id, []),
             }
             for installment in installments
         ],
@@ -2537,6 +2579,7 @@ def super_admin_purchase_record(
         "total_fee": enrollment.total_fee,
         "amount": enrollment.total_fee,
         **enrollment_payment_summary(db, enrollment),
+        "payments": enrollment_payment_history(db, enrollment),
         "payment_status": enrollment.status,
         "course_status": enrollment.course_status,
         "branch_approval_status": enrollment.branch_approval_status,

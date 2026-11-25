@@ -2,6 +2,19 @@ from datetime import date, datetime
 from pydantic import BaseModel, EmailStr, Field
 
 
+class EnrollmentInstallmentPaymentDetail(BaseModel):
+    payment_id: int
+    amount: float
+    cash_amount: float = 0
+    upi_amount: float = 0
+    payment_method: str
+    payment_status: str
+    approval_status: str
+    payment_date: date
+    payment_reference: str | None = None
+    upi_transaction_id: str | None = None
+
+
 class EnrollmentInstallmentDetail(BaseModel):
     installment_id: int
     installment_number: int
@@ -14,6 +27,10 @@ class EnrollmentInstallmentDetail(BaseModel):
     due_date: date
     status: str
     paid_date: date | None = None
+    cash_amount: float = 0
+    upi_amount: float = 0
+    payment_methods: list[str] = Field(default_factory=list)
+    payments: list[EnrollmentInstallmentPaymentDetail] = Field(default_factory=list)
 
 
 class EnrollmentBranchDetail(BaseModel):
