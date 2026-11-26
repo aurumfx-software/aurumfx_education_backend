@@ -1796,6 +1796,9 @@ def get_installment_payment_rows(
     branch_id: int | None,
     status: str,
     today_only: bool = False,
+    reviewed_only: bool = False,
+    reviewed_date_from: date | None = None,
+    reviewed_date_to: date | None = None,
 ):
     query = (
         db.query(AdmissionPayment, Enrollment, User, Course, Branch.name)
@@ -1811,6 +1814,19 @@ def get_installment_payment_rows(
         query = query.filter(Enrollment.branch_id == branch_id)
     if today_only:
         query = query.filter(func.date(AdmissionPayment.created_at) == date.today())
+    if reviewed_only:
+        query = query.filter(
+            AdmissionPayment.payment_method == "razorpay",
+            AdmissionPayment.reviewed_by_user_id.isnot(None),
+        )
+    if reviewed_date_from is not None:
+        query = query.filter(
+            func.date(AdmissionPayment.reviewed_at) >= reviewed_date_from
+        )
+    if reviewed_date_to is not None:
+        query = query.filter(
+            func.date(AdmissionPayment.reviewed_at) <= reviewed_date_to
+        )
     return query.order_by(
         AdmissionPayment.created_at.desc(),
         AdmissionPayment.id.desc(),
@@ -2495,6 +2511,108 @@ def get_branch_admin_installment_payment_history(
     return {"count": len(payments), "payments": payments}
 
 
+def get_reviewed_online_installment_payment_history(
+    db: Session,
+    branch_id: int | None,
+    status: str,
+    date_from: date | None,
+    date_to: date | None,
+    today: bool,
+):
+    if status not in {"approved", "received", "rejected", "all"}:
+        raise HTTPException(
+            status_code=400,
+            detail="Status must be approved, received, rejected, or all",
+        )
+    if date_from and date_to and date_from > date_to:
+        raise HTTPException(
+            status_code=400,
+            detail="date_from must not be after date_to",
+        )
+    if today and (date_from is not None or date_to is not None):
+        raise HTTPException(
+            status_code=400,
+            detail="Use either today=true or a date range, not both",
+        )
+
+    if today:
+        date_from = date.today()
+        date_to = date.today()
+
+    statuses = (
+        ("received", "rejected")
+        if status == "all"
+        else ("received",)
+        if status in {"approved", "received"}
+        else ("rejected",)
+    )
+    rows = []
+    for payment_status in statuses:
+        rows.extend(
+            get_installment_payment_rows(
+                db,
+                branch_id,
+                payment_status,
+                reviewed_only=True,
+                reviewed_date_from=date_from,
+                reviewed_date_to=date_to,
+            )
+        )
+    rows.sort(
+        key=lambda row: (
+            str(row[0].reviewed_at or row[0].created_at or ""),
+            row[0].id,
+        ),
+        reverse=True,
+    )
+
+    order_ids = razorpay_order_ids_by_payment_reference(
+        db, [payment for payment, _, _, _, _ in rows]
+    )
+    payments = [
+        build_installment_payment_record(
+            payment,
+            enrollment,
+            student,
+            course,
+            branch_name,
+            order_ids.get((enrollment.id, payment.payment_reference)),
+        )
+        for payment, enrollment, student, course, branch_name in rows
+    ]
+    return {
+        "branch_id": branch_id,
+        "status": status,
+        "date_from": date_from,
+        "date_to": date_to,
+        "count": len(payments),
+        "payments": payments,
+    }
+
+
+@router.get(
+    "/branch-admin/installment-payments/online-history",
+    tags=["Branch Admin Installments"],
+)
+def get_branch_admin_online_installment_payment_history(
+    status: str = Query(default="all"),
+    date_from: date | None = Query(default=None),
+    date_to: date | None = Query(default=None),
+    today: bool = Query(default=False),
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    branch_id = require_branch_admin(current_user)
+    return get_reviewed_online_installment_payment_history(
+        db,
+        branch_id,
+        status,
+        date_from,
+        date_to,
+        today,
+    )
+
+
 def require_super_admin_branch(db: Session, branch_id: int | None):
     if branch_id is not None and not db.query(Branch.id).filter(
         Branch.id == branch_id
@@ -2569,6 +2687,30 @@ def get_super_admin_branch_admin_installment_history(
         reverse=True,
     )
     return {"count": len(payments), "payments": payments}
+
+
+@router.get(
+    "/super-admin/branch-admin-online-installment-history",
+    tags=["Super Admin Installments"],
+)
+def get_super_admin_branch_admin_online_installment_history(
+    branch_id: int | None = Query(default=None, ge=1),
+    status: str = Query(default="all"),
+    date_from: date | None = Query(default=None),
+    date_to: date | None = Query(default=None),
+    today: bool = Query(default=False),
+    db: Session = Depends(get_db),
+    current_admin: User = Depends(get_current_super_admin),
+):
+    require_super_admin_branch(db, branch_id)
+    return get_reviewed_online_installment_payment_history(
+        db,
+        branch_id,
+        status,
+        date_from,
+        date_to,
+        today,
+    )
 
 
 # ============================================================
