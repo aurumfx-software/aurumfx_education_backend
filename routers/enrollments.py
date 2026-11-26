@@ -1441,7 +1441,10 @@ def get_branch_admin_purchases(
         )
         .filter(
             Enrollment.branch_id == current_user.branch_id,
-            Enrollment.status == "paid"
+            or_(
+                Enrollment.status == "paid",
+                Enrollment.total_paid > 0,
+            ),
         )
         .order_by(
             Enrollment.created_at.desc()
