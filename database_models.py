@@ -799,6 +799,16 @@ class Enrollment(Base):
         nullable=False
     )
 
+    branch_rejection_reason = Column(
+        String,
+        nullable=True
+    )
+
+    branch_rejected_at = Column(
+        DateTime(timezone=True),
+        nullable=True
+    )
+
     super_admin_approval_status = Column(
         String,
         default="pending",

@@ -246,6 +246,21 @@ try:
         conn.execute(
             text(
                 "ALTER TABLE enrollments "
+                "ADD COLUMN IF NOT EXISTS branch_rejection_reason TEXT;"
+            )
+        )
+
+        conn.execute(
+            text(
+                "ALTER TABLE enrollments "
+                "ADD COLUMN IF NOT EXISTS branch_rejected_at "
+                "TIMESTAMP WITH TIME ZONE;"
+            )
+        )
+
+        conn.execute(
+            text(
+                "ALTER TABLE enrollments "
                 "ADD COLUMN IF NOT EXISTS super_admin_rejection_reason TEXT;"
             )
         )

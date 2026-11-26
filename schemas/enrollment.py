@@ -122,6 +122,10 @@ class SuperAdminPurchaseReject(BaseModel):
     reason: str = Field(min_length=1, max_length=1000)
 
 
+class BranchAdminPurchaseReject(BaseModel):
+    reason: str = Field(min_length=1, max_length=1000)
+
+
 class BranchAdminInstallmentPaymentCreate(BaseModel):
     installment_number: int | None = Field(default=None, ge=1)
     pay_full_balance: bool = False
@@ -186,6 +190,8 @@ class EnrollmentResponse(BaseModel):
     # Branch approval status
     course_status: str
     branch_approval_status: str = "pending"
+    branch_rejection_reason: str | None = None
+    branch_rejected_at: datetime | None = None
     super_admin_approval_status: str = "pending"
     super_admin_rejection_reason: str | None = None
     super_admin_rejected_at: datetime | None = None
@@ -242,6 +248,8 @@ class AdminEnrollmentResponse(BaseModel):
     # Branch approval status
     course_status: str
     branch_approval_status: str = "pending"
+    branch_rejection_reason: str | None = None
+    branch_rejected_at: datetime | None = None
     super_admin_approval_status: str = "pending"
     super_admin_rejection_reason: str | None = None
     super_admin_rejected_at: datetime | None = None
